@@ -37,3 +37,9 @@ backend/exam_guru.db
 .exam_guru_demo_seed.json
 .phase*.db
 .phase*_runtime_smoke*.db
+
+node_modules/
+runtime_logs/
+*.log
+*.db
+.env
