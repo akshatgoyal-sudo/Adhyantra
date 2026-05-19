@@ -1,0 +1,32 @@
+﻿{
+  "name": "exam-guru",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "start": "npm run start --workspace frontend",
+    "typecheck": "npm run typecheck --workspace frontend",
+    "db:preflight": "python scripts/db_preflight.py",
+    "db:runtime-status": "python scripts/demo_runtime_state.py status",
+    "db:apply-schema": "python scripts/db_preflight.py --apply-schema-updates",
+    "db:reset": "python scripts/demo_runtime_state.py reset --yes",
+    "db:backup": "python scripts/backup_sqlite_db.py",
+    "db:seed-demo-accounts": "python scripts/demo_runtime_state.py seed-accounts",
+    "db:load-scenarios": "python scripts/demo_runtime_state.py load-scenarios",
+    "db:seed-demo": "python scripts/seed_demo_progress.py",
+    "ops:preflight": "python scripts/deployment_preflight.py",
+    "ops:backend": "python scripts/run_staging_backend.py",
+    "ops:worker": "python scripts/run_staging_worker.py",
+    "ops:frontend": "python scripts/run_staging_frontend.py",
+    "ops:smoke": "python scripts/staging_smoke.py",
+    "staging:config": "python scripts/run_staging_backend.py --check-only",
+    "staging:backend": "python scripts/run_staging_backend.py",
+    "staging:worker": "python scripts/run_staging_worker.py",
+    "staging:frontend": "python scripts/run_staging_frontend.py",
+    "smoke:staging": "python scripts/staging_smoke.py",
+    "smoke:scenario": "python scripts/staging_smoke.py"
+  }
+}
