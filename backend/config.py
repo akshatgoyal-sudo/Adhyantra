@@ -1142,6 +1142,7 @@ class Settings:
     smtp_use_tls: bool = field(default_factory=lambda: _env_bool("SMTP_USE_TLS", True))
     smtp_use_ssl: bool = field(default_factory=lambda: _env_bool("SMTP_USE_SSL", False))
     smtp_timeout_seconds: int = field(default_factory=lambda: _env_int("SMTP_TIMEOUT_SECONDS", 15))
+    resend_api_key: str = field(default_factory=lambda: _env("RESEND_API_KEY", ""))
     auth_dev_return_otp: bool = field(default_factory=lambda: _env_bool("AUTH_DEV_RETURN_OTP", False))
     allow_mock_ai_in_production: bool = field(default_factory=lambda: _env_bool("ALLOW_MOCK_AI_IN_PRODUCTION", False))
     allow_sqlite_in_production: bool = field(default_factory=lambda: _env_bool("ALLOW_SQLITE_IN_PRODUCTION", False))

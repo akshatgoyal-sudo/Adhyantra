@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
 import logging
+import resend
 import smtplib
 import ssl
 from typing import Protocol
@@ -65,6 +66,8 @@ def _normalize_transport(value: str | None) -> str:
     candidate = str(value or "smtp").strip().lower()
     if candidate in {"email", "smtp"}:
         return "smtp"
+    if candidate == "resend":
+        return "resend"
     if candidate == "console":
         return "console"
     return candidate
@@ -117,7 +120,78 @@ class ConsoleEmailTransport:
             external_delivery=self.external_delivery,
         )
 
+@dataclass(frozen=True)
+class ResendEmailTransport:
+    name: str = "resend"
+    external_delivery: bool = True
 
+    def send(self, email: OutboundEmail) -> EmailDeliveryResult:
+        api_key = str(settings.resend_api_key or "").strip()
+
+        if not api_key:
+            raise EmailDeliveryError("RESEND_API_KEY is not configured.")
+
+        resend.api_key = api_key
+
+        log_event(
+            logger,
+            logging.INFO,
+            "email.delivery_attempt",
+            **email_log_context(email.recipient_email),
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+        )
+
+        try:
+            payload = {
+                "from": _build_from_header(),
+                "to": [email.recipient_email],
+                "subject": email.subject,
+                "text": email.text_body,
+                "html": email.html_body or email.text_body,
+            }
+
+            reply_to = str(
+                email.reply_to_email
+                or settings.email_reply_to_address
+                or ""
+            ).strip()
+
+            if reply_to:
+                payload["reply_to"] = reply_to
+
+            resend.Emails.send(payload)
+
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "email.delivery_failed",
+                **email_log_context(email.recipient_email),
+                delivery_mode="email",
+                transport=self.name,
+                external_delivery=self.external_delivery,
+                error_type=type(exc).__name__,
+            )
+
+            raise EmailDeliveryError("Email delivery failed.") from exc
+
+        log_event(
+            logger,
+            logging.INFO,
+            "email.delivery_succeeded",
+            **email_log_context(email.recipient_email),
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+        )
+
+        return EmailDeliveryResult(
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+        )
 @dataclass(frozen=True)
 class SmtpEmailTransport:
     name: str = "smtp"
@@ -212,8 +286,12 @@ def _resolve_email_transport(delivery_mode: str) -> EmailTransport:
         return ConsoleEmailTransport()
 
     transport_name = _normalize_transport(settings.email_transport)
+
     if transport_name == "smtp":
         return SmtpEmailTransport()
+
+    if transport_name == "resend":
+        return ResendEmailTransport()
 
     log_event(
         logger,
