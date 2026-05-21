@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
@@ -28,13 +30,46 @@ from backend.services.auth_service import (
     verify_email_otp,
     update_user_settings,
 )
+from backend.services.ops_logging import log_event, request_log_context, stable_hash
 
 
 router = APIRouter()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
-def _set_session_cookie(response: Response, *, session_token: str) -> None:
+def _session_cookie_log_fields(session_token: str | None = None) -> dict[str, object]:
+    return {
+        "session_cookie_name": settings.session_cookie_name,
+        "session_cookie_secure": settings.effective_secure_session_cookies,
+        "session_cookie_samesite": settings.effective_session_cookie_samesite,
+        "session_cookie_path": settings.effective_session_cookie_path,
+        "session_cookie_domain_effective": settings.effective_session_cookie_domain,
+        "frontend_backend_cross_site": settings.frontend_backend_cross_site,
+        "token_fingerprint": stable_hash(session_token, length=10),
+    }
+
+
+def _log_session_cookie_event(
+    request: Request | None,
+    event: str,
+    *,
+    session_token: str | None = None,
+    user_id: int | None = None,
+    reason: str | None = None,
+) -> None:
+    log_event(
+        logger,
+        logging.INFO,
+        event,
+        **request_log_context(request),
+        **_session_cookie_log_fields(session_token),
+        user_id=user_id,
+        reason=reason,
+    )
+
+
+def _set_session_cookie(response: Response, *, request: Request, session_token: str, user_id: int | None = None) -> None:
     response.set_cookie(
         key=settings.session_cookie_name,
         value=session_token,
@@ -45,9 +80,21 @@ def _set_session_cookie(response: Response, *, session_token: str) -> None:
         path=settings.effective_session_cookie_path,
         max_age=settings.effective_session_ttl_seconds,
     )
+    _log_session_cookie_event(
+        request,
+        "auth.session_cookie_set",
+        session_token=session_token,
+        user_id=user_id,
+    )
 
 
-def _clear_session_cookie(response: Response) -> None:
+def _clear_session_cookie(
+    response: Response,
+    *,
+    request: Request | None = None,
+    reason: str | None = None,
+    emit_log: bool = True,
+) -> None:
     response.delete_cookie(
         key=settings.session_cookie_name,
         httponly=True,
@@ -56,11 +103,18 @@ def _clear_session_cookie(response: Response) -> None:
         domain=settings.effective_session_cookie_domain,
         path=settings.effective_session_cookie_path,
     )
+    if emit_log:
+        _log_session_cookie_event(
+            request,
+            "auth.session_cookie_cleared",
+            user_id=getattr(getattr(request, "state", None), "auth_authenticated_user_id", None) if request is not None else None,
+            reason=reason,
+        )
 
 
-def _clear_session_cookie_headers() -> dict[str, str]:
+def _clear_session_cookie_headers(*, request: Request | None = None, reason: str | None = None) -> dict[str, str]:
     response = Response()
-    _clear_session_cookie(response)
+    _clear_session_cookie(response, request=request, reason=reason, emit_log=False)
     cookie_header = response.headers.get("set-cookie")
     return {"Set-Cookie": cookie_header} if cookie_header else {}
 
@@ -89,7 +143,12 @@ def verify_otp(
         request=request,
     )
 
-    _set_session_cookie(response, session_token=result["session_token"])
+    _set_session_cookie(
+        response,
+        request=request,
+        session_token=result["session_token"],
+        user_id=int(result["user"]["id"]) if isinstance(result.get("user"), dict) and result["user"].get("id") is not None else None,
+    )
     return {
         "authenticated": result["authenticated"],
         "session_expires_at": result["session_expires_at"],
@@ -103,11 +162,16 @@ def verify_otp(
 def get_current_session(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
     context = get_current_auth_context(db, request)
     if context is None:
-        _clear_session_cookie(response)
+        failure_reason = str(getattr(request.state, "auth_failure_reason", "") or "unauthenticated")
+        if bool(getattr(request.state, "auth_session_cookie_received", False)):
+            _clear_session_cookie(response, request=request, reason=failure_reason)
+            headers = _clear_session_cookie_headers(request=request, reason=failure_reason)
+        else:
+            headers = {}
         raise HTTPException(
             status_code=401,
             detail="You need to sign in first.",
-            headers=_clear_session_cookie_headers(),
+            headers=headers,
         )
     return serialize_auth_context(context, db)
 
@@ -115,7 +179,7 @@ def get_current_session(request: Request, response: Response, db: Session = Depe
 @router.post("/api/auth/logout", response_model=LogoutResponse)
 def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
     revoked = logout_current_session(db, request)
-    _clear_session_cookie(response)
+    _clear_session_cookie(response, request=request, reason="logout")
     return {"success": revoked}
 
 

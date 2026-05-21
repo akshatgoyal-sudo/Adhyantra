@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
-from typing import Generator
+from typing import Callable, Generator, Iterator
 
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from backend.config import LEGACY_BACKEND_DB_FILE_PATH, get_active_sqlite_db_path, get_settings
 
@@ -21,17 +22,25 @@ DB_SCHEMA_MANAGEMENT = {
 engine = create_engine(
     settings.db_url,
     connect_args={"check_same_thread": False} if settings.db_url.startswith("sqlite") else {},
+    pool_pre_ping=not settings.db_url.startswith("sqlite"),
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-def get_db() -> Generator:
-    db = SessionLocal()
+@contextmanager
+def managed_db_session(session_factory: Callable[[], Session] | None = None) -> Iterator[Session]:
+    factory = session_factory or SessionLocal
+    db = factory()
     try:
         yield db
     finally:
         db.close()
+
+
+def get_db() -> Generator:
+    with managed_db_session() as db:
+        yield db
 
 
 def database_readiness_snapshot() -> dict:

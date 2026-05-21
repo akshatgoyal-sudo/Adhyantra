@@ -7372,6 +7372,53 @@ def test_session_cookie_policy_is_config_driven(
     assert "max-age=172800" in cookie_header
 
 
+def test_cross_site_session_cookie_uses_none_and_host_only_domain(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.routes import auth_routes
+    from backend.services import auth_service
+
+    monkeypatch.setattr(auth_service.settings, "frontend_origin", "https://adhyantra-ui.netlify.app")
+    monkeypatch.setattr(auth_service.settings, "backend_public_url", "https://adhyantra-api.onrender.com")
+    monkeypatch.setattr(auth_service.settings, "session_cookie_samesite", "lax")
+    monkeypatch.setattr(auth_service.settings, "session_cookie_domain", "adhyantra.test")
+    monkeypatch.setattr(auth_service.settings, "secure_session_cookies", False)
+    monkeypatch.setattr(auth_routes.settings, "frontend_origin", "https://adhyantra-ui.netlify.app")
+    monkeypatch.setattr(auth_routes.settings, "backend_public_url", "https://adhyantra-api.onrender.com")
+    monkeypatch.setattr(auth_routes.settings, "session_cookie_samesite", "lax")
+    monkeypatch.setattr(auth_routes.settings, "session_cookie_domain", "adhyantra.test")
+    monkeypatch.setattr(auth_routes.settings, "secure_session_cookies", False)
+
+    request_response = client.post(
+        "/api/auth/request-otp",
+        json={"email": "cross-site-cookie@example.com"},
+    )
+    assert request_response.status_code == 200
+    request_body = request_response.json()
+
+    verify_response = client.post(
+        "/api/auth/verify-otp",
+        json={"email": "cross-site-cookie@example.com", "code": request_body["dev_otp_code"]},
+    )
+    assert verify_response.status_code == 200
+
+    cookie_header = verify_response.headers["set-cookie"].lower()
+    assert "httponly" in cookie_header
+    assert "secure" in cookie_header
+    assert "samesite=none" in cookie_header
+    assert "domain=" not in cookie_header
+
+
+def test_auth_me_without_cookie_does_not_emit_cookie_clear_header(client: TestClient) -> None:
+    client.cookies.clear()
+
+    me_response = client.get("/api/auth/me")
+
+    assert me_response.status_code == 401
+    assert me_response.headers.get("set-cookie") is None
+
+
 def test_request_otp_returns_service_unavailable_when_email_delivery_fails(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from backend.services import auth_service
 

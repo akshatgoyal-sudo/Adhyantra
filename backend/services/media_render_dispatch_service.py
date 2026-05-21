@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
-from backend.db import SessionLocal
+from backend.db import SessionLocal, managed_db_session
 from backend.models import MediaRenderJob, UserAccount
 from backend.schemas import AudioScriptExportPayload
 from backend.services.analytics_service import record_analytics_event_safe
@@ -346,44 +346,39 @@ class MediaRenderDispatcher:
         if not force and self._last_heartbeat_monotonic:
             if (now_monotonic - self._last_heartbeat_monotonic) < self._heartbeat_interval_seconds:
                 return
-        db = self._session_factory()
         try:
-            upsert_runtime_process_heartbeat(
-                db,
-                service_name=MEDIA_RENDER_WORKER_SERVICE_NAME,
-                process_role="worker",
-                runtime_instance_id=self._worker_id,
-                environment=self._settings.environment_name,
-                worker_mode=self._settings.effective_media_render_worker_mode,
-                status="running",
-                metadata=self._heartbeat_metadata(),
-                started_at=self._started_at,
-                heartbeat_at=_utc_now(),
-            )
-            self._last_heartbeat_monotonic = now_monotonic
+            with managed_db_session(self._session_factory) as db:
+                upsert_runtime_process_heartbeat(
+                    db,
+                    service_name=MEDIA_RENDER_WORKER_SERVICE_NAME,
+                    process_role="worker",
+                    runtime_instance_id=self._worker_id,
+                    environment=self._settings.environment_name,
+                    worker_mode=self._settings.effective_media_render_worker_mode,
+                    status="running",
+                    metadata=self._heartbeat_metadata(),
+                    started_at=self._started_at,
+                    heartbeat_at=_utc_now(),
+                )
+                self._last_heartbeat_monotonic = now_monotonic
         except Exception:  # pragma: no cover - operational resilience
             logger.exception("Failed to record media render worker heartbeat for %s.", self._worker_id)
-        finally:
-            db.close()
 
     def _mark_process_stopped(self) -> None:
-        db = self._session_factory()
         try:
-            mark_runtime_process_stopped(
-                db,
-                service_name=MEDIA_RENDER_WORKER_SERVICE_NAME,
-                runtime_instance_id=self._worker_id,
-                metadata=self._heartbeat_metadata(),
-                stopped_at=_utc_now(),
-            )
+            with managed_db_session(self._session_factory) as db:
+                mark_runtime_process_stopped(
+                    db,
+                    service_name=MEDIA_RENDER_WORKER_SERVICE_NAME,
+                    runtime_instance_id=self._worker_id,
+                    metadata=self._heartbeat_metadata(),
+                    stopped_at=_utc_now(),
+                )
         except Exception:  # pragma: no cover - operational resilience
             logger.exception("Failed to mark media render worker %s as stopped.", self._worker_id)
-        finally:
-            db.close()
 
     def _process_next_job(self) -> bool:
-        db = self._session_factory()
-        try:
+        with managed_db_session(self._session_factory) as db:
             current_time = _utc_now()
             restarted_jobs = recover_stale_queued_media_render_jobs(
                 db,
@@ -412,8 +407,6 @@ class MediaRenderDispatcher:
                 return bool(restarted_jobs or recovered_jobs or exhausted_jobs or cleaned_jobs)
             self._execute_claimed_job(db, claimed_job)
             return True
-        finally:
-            db.close()
 
     def _pop_next_pending_job_id(self) -> int | None:
         with self._lock:

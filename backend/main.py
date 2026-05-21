@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.config import get_active_sqlite_db_path, get_settings, normalize_exam, read_demo_seed_metadata
-from backend.db import SessionLocal, database_readiness_snapshot, init_db
+from backend.db import SessionLocal, database_readiness_snapshot, init_db, managed_db_session
 from backend.routes.account_billing_routes import router as account_billing_router
 from backend.routes.admin_content_routes import router as admin_content_router
 from backend.routes.admin_ops_routes import router as admin_ops_router
@@ -218,6 +218,7 @@ def _safe_runtime_config_snapshot() -> dict:
         "security": {
             "secure_session_cookies": settings.effective_secure_session_cookies,
             "session_cookie_samesite": settings.effective_session_cookie_samesite,
+            "frontend_backend_cross_site": settings.frontend_backend_cross_site,
             "session_idle_timeout_seconds": settings.effective_session_idle_timeout_seconds,
             "cors_origin_count": len(settings.effective_cors_allowed_origins),
             "cors_method_count": len(settings.effective_cors_allowed_methods),
@@ -233,6 +234,7 @@ def _safe_runtime_config_snapshot() -> dict:
             "production": settings.production_mode,
             "frontend_origin_configured": bool(str(settings.frontend_origin or "").strip()),
             "backend_public_url_configured": bool(str(settings.backend_public_url or "").strip()),
+            "session_cookie_domain_effective": bool(settings.effective_session_cookie_domain),
         },
     }
 
@@ -328,6 +330,9 @@ async def lifespan(fastapi_app: FastAPI):
         email_delivery_mode=settings.effective_email_delivery_mode,
         email_transport=settings.effective_email_transport,
         secure_session_cookies=settings.effective_secure_session_cookies,
+        session_cookie_samesite=settings.effective_session_cookie_samesite,
+        frontend_backend_cross_site=settings.frontend_backend_cross_site,
+        session_cookie_domain_effective=bool(settings.effective_session_cookie_domain),
         cors_origin_count=len(settings.effective_cors_allowed_origins),
         trusted_host_count=len(settings.effective_trusted_hosts),
     )
@@ -364,8 +369,7 @@ async def lifespan(fastapi_app: FastAPI):
             warning_count=len(validation.warnings),
         )
         init_db()
-        recovery_db = SessionLocal()
-        try:
+        with managed_db_session(SessionLocal) as recovery_db:
             recovered_startup_jobs = recover_stale_queued_media_render_jobs(
                 recovery_db,
                 stale_after_seconds=max(
@@ -373,8 +377,6 @@ async def lifespan(fastapi_app: FastAPI):
                     settings.effective_media_render_claim_lease_seconds,
                 ),
             )
-        finally:
-            recovery_db.close()
         if recovered_startup_jobs:
             log_event(
                 event_logger,
@@ -590,11 +592,8 @@ def _readiness_payload() -> tuple[dict, int]:
     db_readiness = database_readiness_snapshot()
     boot = _boot_snapshot()
     session_factory = _runtime_session_factory()
-    worker_db = session_factory()
-    try:
+    with managed_db_session(session_factory) as worker_db:
         worker_snapshot = build_media_render_worker_snapshot(worker_db, app, settings=settings)
-    finally:
-        worker_db.close()
     pipeline_snapshot = build_media_render_pipeline_snapshot(
         settings=settings,
         worker_snapshot=worker_snapshot,
@@ -755,8 +754,10 @@ def health_check() -> dict:
             "config_validation": validation.to_public_dict(),
             "secure_session_cookies": settings.effective_secure_session_cookies,
             "session_cookie_samesite": settings.effective_session_cookie_samesite,
+            "frontend_backend_cross_site": settings.frontend_backend_cross_site,
             "session_cookie_path": settings.effective_session_cookie_path,
-            "session_cookie_domain_configured": bool(settings.effective_session_cookie_domain),
+            "session_cookie_domain_configured": bool(str(settings.session_cookie_domain or "").strip()),
+            "session_cookie_domain_effective": bool(settings.effective_session_cookie_domain),
             "session_ttl_seconds": settings.effective_session_ttl_seconds,
             "session_idle_timeout_seconds": settings.effective_session_idle_timeout_seconds,
             "cors_origin_count": len(settings.effective_cors_allowed_origins),

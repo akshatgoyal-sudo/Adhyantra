@@ -40,6 +40,7 @@ settings = get_settings()
 EMAIL_PATTERN = re.compile(r"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$", re.IGNORECASE)
 VALID_THEME_PREFERENCES = {"light", "dark", "system"}
 VALID_NOTIFICATION_DIGEST_FREQUENCIES = {"off", "important_only", "weekly"}
+AUTH_SESSION_TOUCH_INTERVAL_SECONDS = 60
 
 
 def _hash_secret(value: str) -> str:
@@ -186,6 +187,45 @@ def _log_auth_event(
         challenge_id=challenge_id,
         **fields,
     )
+
+
+def _session_cookie_log_fields(raw_token: str | None = None) -> dict[str, Any]:
+    return {
+        "session_cookie_name": settings.session_cookie_name,
+        "session_cookie_secure": settings.effective_secure_session_cookies,
+        "session_cookie_samesite": settings.effective_session_cookie_samesite,
+        "session_cookie_path": settings.effective_session_cookie_path,
+        "session_cookie_domain_effective": bool(settings.effective_session_cookie_domain),
+        "frontend_backend_cross_site": settings.frontend_backend_cross_site,
+        "token_fingerprint": stable_hash(raw_token, length=10),
+    }
+
+
+def _record_auth_request_state(
+    request: Request | None,
+    *,
+    session_cookie_received: bool | None = None,
+    failure_reason: str | None | object = ...,
+    authenticated_user_id: int | None | object = ...,
+    authenticated_session_id: int | None | object = ...,
+) -> None:
+    if request is None:
+        return
+    if session_cookie_received is not None:
+        request.state.auth_session_cookie_received = session_cookie_received
+    if failure_reason is not ...:
+        request.state.auth_failure_reason = failure_reason
+    if authenticated_user_id is not ...:
+        request.state.auth_authenticated_user_id = authenticated_user_id
+    if authenticated_session_id is not ...:
+        request.state.auth_authenticated_session_id = authenticated_session_id
+
+
+def _should_touch_session_activity(session: UserSession, user: UserAccount, *, now: datetime) -> bool:
+    session_touch_anchor = session.last_seen_at or session.last_authenticated_at or session.created_at
+    user_touch_anchor = user.last_active_at or session.last_authenticated_at or user.created_at
+    latest_touch = max(_ensure_utc_datetime(session_touch_anchor), _ensure_utc_datetime(user_touch_anchor))
+    return (now - latest_touch).total_seconds() >= AUTH_SESSION_TOUCH_INTERVAL_SECONDS
 
 
 def _default_setting_values() -> tuple[str, str]:
@@ -924,9 +964,33 @@ def verify_email_otp(
 
 
 def get_current_auth_context(db: Session, request: Request) -> dict[str, Any] | None:
+    _record_auth_request_state(
+        request,
+        session_cookie_received=False,
+        failure_reason="missing_cookie",
+    )
     raw_token = str(request.cookies.get(settings.session_cookie_name) or "").strip()
     if not raw_token:
+        log_event(
+            logger,
+            logging.INFO,
+            "auth.session_cookie_missing",
+            **request_log_context(request),
+            **_session_cookie_log_fields(),
+        )
         return None
+    _record_auth_request_state(
+        request,
+        session_cookie_received=True,
+        failure_reason="unresolved_session",
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        "auth.session_cookie_received",
+        **request_log_context(request),
+        **_session_cookie_log_fields(raw_token),
+    )
 
     now = utc_now()
     token_hash = _hash_secret(raw_token)
@@ -942,9 +1006,11 @@ def get_current_auth_context(db: Session, request: Request) -> dict[str, Any] | 
             logging.WARNING,
             "auth.session_invalid",
             **request_log_context(request),
+            **_session_cookie_log_fields(raw_token),
             reason="unknown_session_token",
             token_fingerprint=stable_hash(raw_token, length=10),
         )
+        _record_auth_request_state(request, failure_reason="unknown_session_token")
         return None
     if session.revoked_at is not None:
         log_event(
@@ -952,14 +1018,17 @@ def get_current_auth_context(db: Session, request: Request) -> dict[str, Any] | 
             logging.INFO,
             "auth.session_invalid",
             **request_log_context(request),
+            **_session_cookie_log_fields(raw_token),
             user_id=session.user_id,
             session_id=session.id,
             reason="revoked",
             revoke_reason=session.revoke_reason,
         )
+        _record_auth_request_state(request, failure_reason="revoked")
         return None
 
     if session_expires_at is None or session_expires_at <= now:
+        _record_auth_request_state(request, failure_reason="session_expired")
         _revoke_session(db, session, reason="session_expired", now=now)
         return None
 
@@ -968,26 +1037,49 @@ def get_current_auth_context(db: Session, request: Request) -> dict[str, Any] | 
         last_seen_at = session.last_seen_at or session.last_authenticated_at
         idle_window_start = _ensure_utc_datetime(last_seen_at) if last_seen_at is not None else session_expires_at
         if idle_window_start + timedelta(seconds=idle_timeout_seconds) <= now:
+            _record_auth_request_state(request, failure_reason="session_idle_timeout")
             _revoke_session(db, session, reason="session_idle_timeout", now=now)
             return None
 
     user = session.user
     if user is None or not bool(user.is_active):
+        _record_auth_request_state(request, failure_reason="user_inactive")
         _revoke_session(db, session, reason="user_inactive", now=now)
         return None
 
     _ensure_user_profile(db, user)
     user_settings = _ensure_user_settings(db, user)
     reconciliation = reconcile_subscription_entitlements_and_quotas(user, now=now)
+    should_touch_session = _should_touch_session_activity(session, user, now=now)
     if reconciliation.changed:
         db.add(user)
-    user.last_active_at = now
-    session.last_seen_at = now
-    db.add(session)
-    db.add(user)
-    db.commit()
-    db.refresh(session)
-    db.refresh(user_settings)
+    if reconciliation.changed or should_touch_session:
+        user.last_active_at = now
+        session.last_seen_at = now
+        db.add(session)
+        db.add(user)
+        db.commit()
+        db.refresh(session)
+        db.refresh(user_settings)
+
+    _record_auth_request_state(
+        request,
+        failure_reason=None,
+        authenticated_user_id=user.id,
+        authenticated_session_id=session.id,
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        "auth.session_authenticated",
+        **request_log_context(request),
+        **_session_cookie_log_fields(raw_token),
+        user_id=user.id,
+        session_id=session.id,
+        session_expires_at=session_expires_at,
+        session_activity_touched=bool(reconciliation.changed or should_touch_session),
+        subscription_reconciled=bool(reconciliation.changed),
+    )
 
     return {
         "authenticated": True,

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from functools import lru_cache
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -961,6 +962,28 @@ def _origin_hostname(value: str | None) -> str:
     return str(parsed.hostname or "").strip().lower()
 
 
+def _origin_site_scope(value: str | None) -> str:
+    parsed = urlparse(str(value or "").strip())
+    scheme = str(parsed.scheme or "").strip().lower()
+    hostname = str(parsed.hostname or "").strip().lower()
+    if not scheme or not hostname:
+        return ""
+
+    try:
+        ipaddress.ip_address(hostname)
+        site_host = hostname
+    except ValueError:
+        labels = [label for label in hostname.split(".") if label]
+        if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in {"ac", "co", "com", "edu", "gov", "net", "org"}:
+            site_host = ".".join(labels[-3:])
+        elif len(labels) >= 2:
+            site_host = ".".join(labels[-2:])
+        else:
+            site_host = hostname
+
+    return f"{scheme}://{site_host}"
+
+
 def _is_valid_cookie_domain(value: str | None) -> bool:
     candidate = str(value or "").strip()
     if not candidate:
@@ -1277,12 +1300,22 @@ class Settings:
         return max(int(self.session_idle_timeout_minutes or 0), 0) * 60
 
     @property
+    def frontend_backend_cross_site(self) -> bool:
+        frontend_site = _origin_site_scope(self.frontend_origin)
+        backend_site = _origin_site_scope(self.backend_public_url)
+        return bool(frontend_site and backend_site and frontend_site != backend_site)
+
+    @property
     def effective_session_cookie_samesite(self) -> str:
+        if self.frontend_backend_cross_site:
+            return "none"
         return _normalize_session_cookie_samesite(self.session_cookie_samesite)
 
     @property
     def effective_session_cookie_domain(self) -> str | None:
         candidate = str(self.session_cookie_domain or "").strip()
+        if self.frontend_backend_cross_site:
+            return None
         return candidate or None
 
     @property
