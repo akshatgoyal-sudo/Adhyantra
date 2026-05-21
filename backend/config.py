@@ -1549,12 +1549,12 @@ class Settings:
                 )
             if email_delivery_mode == "email":
                 email_transport = self.effective_email_transport
-                if email_transport != "smtp":
+                if email_transport not in {"smtp", "resend", "console"}:
                     add_issue(
                         "error",
                         "email",
                         "unsupported_email_transport",
-                        "EMAIL_TRANSPORT currently supports smtp for real email delivery. Provider-backed transports should be added behind this setting.",
+                        "EMAIL_TRANSPORT must be one of: smtp, resend, console.",
                     )
                 if not str(self.email_from_address or "").strip():
                     add_issue("error", "email", "missing_from_address", "EMAIL_FROM_ADDRESS is required for real email delivery.")
