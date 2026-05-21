@@ -983,9 +983,20 @@ def _normalize_email_transport(value: str | None) -> str:
     candidate = str(value or "smtp").strip().lower()
     if candidate in {"email", "smtp"}:
         return "smtp"
+    if candidate == "resend":
+        return "resend"
     if candidate == "console":
         return "console"
     return candidate
+
+
+SUPPORTED_EMAIL_TRANSPORTS: tuple[str, ...] = ("smtp", "resend", "console")
+SUPPORTED_EXTERNAL_EMAIL_TRANSPORTS: tuple[str, ...] = ("smtp", "resend")
+
+
+def _describe_email_transports(*, include_console: bool = True) -> str:
+    transports = SUPPORTED_EMAIL_TRANSPORTS if include_console else SUPPORTED_EXTERNAL_EMAIL_TRANSPORTS
+    return ", ".join(transports)
 
 
 def _normalize_environment_name(value: str | None) -> str:
@@ -1453,6 +1464,70 @@ class Settings:
             "smtp_auth_configured": bool(str(self.smtp_username or "").strip()),
         }
 
+    def _validate_real_email_transport_config(self, add_issue, *, policy) -> None:
+        email_transport = self.effective_email_transport
+
+        if email_transport not in SUPPORTED_EXTERNAL_EMAIL_TRANSPORTS:
+            add_issue(
+                "error",
+                "email",
+                "unsupported_email_transport",
+                f"EMAIL_TRANSPORT must be {_describe_email_transports(include_console=False)} when EMAIL_DELIVERY_MODE=email. Use console only with EMAIL_DELIVERY_MODE=console.",
+            )
+            return
+
+        if email_transport == "resend":
+            if not str(self.resend_api_key or "").strip():
+                add_issue(
+                    "error",
+                    "email",
+                    "missing_resend_api_key",
+                    "RESEND_API_KEY is required when EMAIL_TRANSPORT=resend.",
+                )
+            return
+
+        if not str(self.smtp_host or "").strip():
+            add_issue("error", "email", "missing_smtp_host", "SMTP_HOST is required when EMAIL_TRANSPORT=smtp.")
+        if not 1 <= int(self.smtp_port or 0) <= 65535:
+            add_issue("error", "email", "invalid_smtp_port", "SMTP_PORT must be between 1 and 65535.")
+        if int(self.smtp_timeout_seconds or 0) < 1:
+            add_issue("error", "email", "invalid_smtp_timeout", "SMTP_TIMEOUT_SECONDS must be at least 1.")
+        if bool(str(self.smtp_username or "").strip()) != bool(str(self.smtp_password or "").strip()):
+            add_issue(
+                "error" if policy.deployed else "warning",
+                "email",
+                "partial_smtp_credentials",
+                "Only one of SMTP_USERNAME or SMTP_PASSWORD is set; most SMTP providers require both.",
+            )
+        if str(self.smtp_password or "").strip() and _looks_like_placeholder_secret(self.smtp_password):
+            add_issue(
+                "error" if policy.deployed else "warning",
+                "secrets",
+                "placeholder_smtp_password",
+                "SMTP_PASSWORD looks like a placeholder value; set a real secret before enabling real email delivery.",
+            )
+        if bool(self.smtp_use_ssl) and bool(self.smtp_use_tls):
+            add_issue(
+                "warning",
+                "email",
+                "smtp_ssl_skips_starttls",
+                "SMTP_USE_SSL uses implicit TLS and will skip STARTTLS even when SMTP_USE_TLS is true.",
+            )
+        if bool(self.smtp_use_ssl) and int(self.smtp_port or 0) == 587:
+            add_issue(
+                "warning",
+                "email",
+                "smtp_ssl_common_port_mismatch",
+                "SMTP_USE_SSL is usually paired with port 465; port 587 commonly uses STARTTLS.",
+            )
+        if bool(self.smtp_use_tls) and not bool(self.smtp_use_ssl) and int(self.smtp_port or 0) == 465:
+            add_issue(
+                "warning",
+                "email",
+                "smtp_starttls_common_port_mismatch",
+                "SMTP_USE_TLS with STARTTLS is usually paired with port 587; port 465 commonly uses SMTP_USE_SSL=true.",
+            )
+
     def ai_runtime_summary(self) -> dict[str, Any]:
         configured_live_providers = [
             provider for provider in self.live_ai_provider_chain if self.ai_provider_configured(provider)
@@ -1548,57 +1623,9 @@ class Settings:
                     "EMAIL_DELIVERY_MODE must be console, email, or smtp.",
                 )
             if email_delivery_mode == "email":
-                email_transport = self.effective_email_transport
-                if email_transport not in {"smtp", "resend", "console"}:
-                    add_issue(
-                        "error",
-                        "email",
-                        "unsupported_email_transport",
-                        "EMAIL_TRANSPORT must be one of: smtp, resend, console.",
-                    )
                 if not str(self.email_from_address or "").strip():
                     add_issue("error", "email", "missing_from_address", "EMAIL_FROM_ADDRESS is required for real email delivery.")
-                if not str(self.smtp_host or "").strip():
-                    add_issue("error", "email", "missing_smtp_host", "SMTP_HOST is required for real email delivery.")
-                if not 1 <= int(self.smtp_port or 0) <= 65535:
-                    add_issue("error", "email", "invalid_smtp_port", "SMTP_PORT must be between 1 and 65535.")
-                if int(self.smtp_timeout_seconds or 0) < 1:
-                    add_issue("error", "email", "invalid_smtp_timeout", "SMTP_TIMEOUT_SECONDS must be at least 1.")
-                if bool(str(self.smtp_username or "").strip()) != bool(str(self.smtp_password or "").strip()):
-                    add_issue(
-                        "error" if policy.deployed else "warning",
-                        "email",
-                        "partial_smtp_credentials",
-                        "Only one of SMTP_USERNAME or SMTP_PASSWORD is set; most SMTP providers require both.",
-                    )
-                if str(self.smtp_password or "").strip() and _looks_like_placeholder_secret(self.smtp_password):
-                    add_issue(
-                        "error" if policy.deployed else "warning",
-                        "secrets",
-                        "placeholder_smtp_password",
-                        "SMTP_PASSWORD looks like a placeholder value; set a real secret before enabling real email delivery.",
-                    )
-                if bool(self.smtp_use_ssl) and bool(self.smtp_use_tls):
-                    add_issue(
-                        "warning",
-                        "email",
-                        "smtp_ssl_skips_starttls",
-                        "SMTP_USE_SSL uses implicit TLS and will skip STARTTLS even when SMTP_USE_TLS is true.",
-                    )
-                if bool(self.smtp_use_ssl) and int(self.smtp_port or 0) == 587:
-                    add_issue(
-                        "warning",
-                        "email",
-                        "smtp_ssl_common_port_mismatch",
-                        "SMTP_USE_SSL is usually paired with port 465; port 587 commonly uses STARTTLS.",
-                    )
-                if bool(self.smtp_use_tls) and not bool(self.smtp_use_ssl) and int(self.smtp_port or 0) == 465:
-                    add_issue(
-                        "warning",
-                        "email",
-                        "smtp_starttls_common_port_mismatch",
-                        "SMTP_USE_TLS with STARTTLS is usually paired with port 587; port 465 commonly uses SMTP_USE_SSL=true.",
-                    )
+                self._validate_real_email_transport_config(add_issue, policy=policy)
                 if bool(self.auth_dev_return_otp):
                     add_issue(
                         "warning",
