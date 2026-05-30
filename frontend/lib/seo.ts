@@ -6,7 +6,9 @@ const DEFAULT_PUBLIC_DESCRIPTION =
 const INTERNAL_ROBOTS_CONTENT = "noindex, nofollow";
 const ROOT_WORKSPACE_DISALLOW_PATH = "/";
 
-const PUBLIC_METADATA_ROUTES = new Set(["/auth", "/pricing", "/exams/[exam]"]);
+export const PUBLIC_INFO_ROUTES = ["/privacy", "/terms", "/refund-policy", "/contact", "/about"] as const;
+
+const PUBLIC_METADATA_ROUTES = new Set(["/auth", "/pricing", "/exams/[exam]", ...PUBLIC_INFO_ROUTES]);
 const INTERNAL_DISCOVERY_DISALLOW_PATHS = ["/admin", "/progress", "/settings", "/test", "/tutor"];
 
 export type PublicIndexableRoute = {
@@ -26,6 +28,11 @@ const PUBLIC_INDEXABLE_ROUTES: PublicIndexableRoute[] = [
     changeFrequency: "weekly",
     priority: 0.8,
   },
+  ...PUBLIC_INFO_ROUTES.map((path) => ({
+    path,
+    changeFrequency: "monthly" as const,
+    priority: 0.4,
+  })),
   ...PUBLIC_EXAM_LANDING_ROUTES.map((path) => ({
     path,
     changeFrequency: "weekly" as const,

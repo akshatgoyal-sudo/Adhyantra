@@ -4,9 +4,19 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 
 import ProductStatusCard from "../components/ProductStatusCard";
-import { DEFAULT_EXAM, DEFAULT_SUBJECT, requestOtp, type AuthSessionResponse } from "../lib/api";
+import {
+  DEFAULT_EXAM,
+  DEFAULT_SUBJECT,
+  requestOtp,
+  updateUserProfile,
+  type AuthSessionResponse,
+} from "../lib/api";
 import { deriveOnboardingFlowState, useAuth } from "../lib/auth";
-import { buildPublicExamAuthHref, getPublicExamLandings } from "../lib/public-exams";
+import {
+  buildPublicExamAuthHref,
+  getPublicExamLandings,
+  type PublicExamLandingSlug,
+} from "../lib/public-exams";
 import {
   buildOrganizationStructuredData,
   buildPublicPageMetadata,
@@ -22,6 +32,44 @@ type OtpRequestState = {
   devOtpCode: string | null;
   isNewUser: boolean;
 };
+
+type AuthStepState = "active" | "complete" | "pending";
+
+const EXAM_ICON_BY_SLUG: Record<PublicExamLandingSlug, string> = {
+  upsc: "🏛",
+  banking: "🏦",
+  ssc: "📚",
+};
+
+const TRUST_ITEMS = [
+  "✓ Secure Email Login",
+  "✓ AI Study Mentor",
+  "✓ Progress Saved Automatically",
+  "✓ UPSC • Banking • SSC",
+];
+
+const SOCIAL_PROOF_CARDS = [
+  {
+    title: "UPSC Preparation",
+    description: "Build conceptual clarity across GS subjects with tutor-led practice and revision loops.",
+  },
+  {
+    title: "Banking Exams",
+    description: "Revise financial awareness, regulation basics, and high-speed practice in one workspace.",
+  },
+  {
+    title: "SSC Exams",
+    description: "Keep general awareness prep compact, repeatable, and easy to revisit before tests.",
+  },
+];
+
+const FOOTER_LINKS = [
+  { href: "/privacy", label: "Privacy Policy" },
+  { href: "/terms", label: "Terms & Conditions" },
+  { href: "/refund-policy", label: "Refund Policy" },
+  { href: "/contact", label: "Contact Us" },
+  { href: "/about", label: "About Adhyantra" },
+];
 
 function formatCountdown(targetIso: string, now: number) {
   const targetTime = Date.parse(targetIso);
@@ -143,6 +191,19 @@ function buildFirstSessionHomeHrefFromSession(session: AuthSessionResponse) {
   );
 }
 
+function resolveSelectedExamFromNextPath(nextPath: string): PublicExamLandingSlug | null {
+  const queryIndex = nextPath.indexOf("?");
+  if (queryIndex < 0) {
+    return null;
+  }
+  const params = new URLSearchParams(nextPath.slice(queryIndex + 1));
+  const exam = params.get("exam");
+  if (exam === "upsc" || exam === "banking" || exam === "ssc") {
+    return exam;
+  }
+  return null;
+}
+
 export default function AuthPage() {
   const router = useRouter();
   const { completeOtpSignIn } = useAuth();
@@ -150,12 +211,29 @@ export default function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [otpRequestState, setOtpRequestState] = useState<OtpRequestState | null>(null);
+  const [selectedExamSlug, setSelectedExamSlug] = useState<PublicExamLandingSlug>("upsc");
   const [submittingEmail, setSubmittingEmail] = useState(false);
   const [submittingCode, setSubmittingCode] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signInComplete, setSignInComplete] = useState(false);
   const [clockNow, setClockNow] = useState(() => Date.now());
+
+  const nextPath = useMemo(() => {
+    const rawNext = typeof router.query.next === "string" ? router.query.next.trim() : "";
+    return rawNext.startsWith("/") ? rawNext : "/";
+  }, [router.query.next]);
+  const nextDestinationLabel = useMemo(() => getNextDestinationLabel(nextPath), [nextPath]);
+  const publicExamEntryLinks = useMemo(
+    () =>
+      getPublicExamLandings().map((landing) => ({
+        slug: landing.slug,
+        label: landing.label,
+        href: buildPublicExamAuthHref(landing.slug),
+        summary: landing.startSummary,
+      })),
+    [],
+  );
 
   useEffect(() => {
     if (!otpRequestState) {
@@ -169,11 +247,12 @@ export default function AuthPage() {
     };
   }, [otpRequestState]);
 
-  const nextPath = useMemo(() => {
-    const rawNext = typeof router.query.next === "string" ? router.query.next.trim() : "";
-    return rawNext.startsWith("/") ? rawNext : "/";
-  }, [router.query.next]);
-  const nextDestinationLabel = useMemo(() => getNextDestinationLabel(nextPath), [nextPath]);
+  useEffect(() => {
+    const selectedFromRoute = resolveSelectedExamFromNextPath(nextPath);
+    if (selectedFromRoute) {
+      setSelectedExamSlug(selectedFromRoute);
+    }
+  }, [nextPath]);
 
   const resendCountdown = otpRequestState ? formatCountdown(otpRequestState.resendAvailableAt, clockNow) : null;
   const challengeCountdown = otpRequestState ? formatCountdown(otpRequestState.challengeExpiresAt, clockNow) : null;
@@ -186,28 +265,22 @@ export default function AuthPage() {
     : "Local delivery";
   const canRequestCode = Boolean(email.trim()) && !submittingEmail && !submittingCode && !signInComplete;
   const canVerifyCode = Boolean(otpRequestState) && otpCode.length === 6 && !challengeExpired && !submittingCode && !signInComplete;
-  const authSteps = [
-    { step: "1", label: otpRequestState ? "Code requested" : "Request code", state: otpRequestState ? "complete" : "active" },
+  const showFirstTimeNameField = Boolean(otpRequestState?.isNewUser) && !signInComplete;
+  const authSteps: { step: string; label: string; state: AuthStepState }[] = [
+    { step: "1", label: "Request code", state: otpRequestState ? "complete" : "active" },
     {
       step: "2",
-      label: signInComplete ? "Verified" : "Verify code",
+      label: "Verify code",
       state: signInComplete ? "complete" : otpRequestState ? "active" : "pending",
     },
-    { step: "3", label: `Open ${nextDestinationLabel}`, state: signInComplete ? "active" : "pending" },
+    { step: "3", label: "Open dashboard", state: signInComplete ? "active" : "pending" },
   ];
-  const authTransitionMessage = otpRequestState?.isNewUser
-    ? nextPath.startsWith("/settings")
-      ? "We'll open Settings first."
-      : `We'll open Settings first, then ${nextDestinationLabel}.`
-    : nextPath === "/"
-      ? "We'll open Home."
-      : `We'll open ${nextDestinationLabel}.`;
   const publicPageMetadata = useMemo(
     () =>
       buildPublicPageMetadata({
-        title: "Sign in to Adhyantra",
+        title: "AI-Powered Learning for UPSC, Banking & SSC",
         description:
-          "Sign in to Adhyantra with a one-time email code to continue your subject-aware tutor, quiz, planning, and premium study workspace.",
+          "Sign in to Adhyantra for AI mentors, adaptive tests, progress tracking, and personalized learning paths for competitive exam preparation.",
         canonicalPath: "/auth",
       }),
     [],
@@ -223,15 +296,6 @@ export default function AuthPage() {
     ],
     [publicPageMetadata.canonicalUrl, publicPageMetadata.description, publicPageMetadata.title],
   );
-  const publicExamEntryLinks = useMemo(
-    () =>
-      getPublicExamLandings().map((landing) => ({
-        slug: landing.slug,
-        label: landing.label,
-        href: buildPublicExamAuthHref(landing.slug),
-      })),
-    [],
-  );
 
   async function handleRequestOtp() {
     const targetEmail = email.trim().toLowerCase();
@@ -246,7 +310,7 @@ export default function AuthPage() {
     setSignInComplete(false);
 
     try {
-      const response = await requestOtp(targetEmail, displayName || undefined);
+      const response = await requestOtp(targetEmail);
       setEmail(response.email || targetEmail);
       setOtpRequestState({
         maskedEmail: response.masked_email,
@@ -256,6 +320,9 @@ export default function AuthPage() {
         devOtpCode: response.dev_otp_code,
         isNewUser: response.is_new_user,
       });
+      if (!response.is_new_user) {
+        setDisplayName("");
+      }
       setOtpCode("");
       setClockNow(Date.now());
       setFeedback(
@@ -292,6 +359,13 @@ export default function AuthPage() {
 
     try {
       const nextSession = await completeOtpSignIn(email.trim().toLowerCase(), normalizedCode);
+      if (otpRequestState.isNewUser && displayName.trim()) {
+        try {
+          await updateUserProfile({ display_name: displayName.trim() });
+        } catch {
+          // Settings still collects the name during setup if this best-effort save fails.
+        }
+      }
       const onboarding = deriveOnboardingFlowState(nextSession);
       const shouldOpenSetup = otpRequestState.isNewUser || onboarding.needsSetup;
       const firstStudySessionCompleted = Boolean(nextSession.user.activation?.activated);
@@ -332,501 +406,829 @@ export default function AuthPage() {
     <>
       <Head>
         <title>{`${publicPageMetadata.title} | ${publicPageMetadata.siteName}`}</title>
-        <meta
-          name="description"
-          content={publicPageMetadata.description}
-        />
-        {publicPageMetadata.canonicalUrl ? (
-          <link
-            rel="canonical"
-            href={publicPageMetadata.canonicalUrl}
-          />
-        ) : null}
-        <meta
-          property="og:site_name"
-          content={publicPageMetadata.siteName}
-        />
-        <meta
-          property="og:type"
-          content={publicPageMetadata.openGraphType}
-        />
-        <meta
-          property="og:title"
-          content={publicPageMetadata.title}
-        />
-        <meta
-          property="og:description"
-          content={publicPageMetadata.description}
-        />
-        {publicPageMetadata.canonicalUrl ? (
-          <meta
-            property="og:url"
-            content={publicPageMetadata.canonicalUrl}
-          />
-        ) : null}
-        <meta
-          name="twitter:card"
-          content={publicPageMetadata.twitterCard}
-        />
-        <meta
-          name="twitter:title"
-          content={publicPageMetadata.title}
-        />
-        <meta
-          name="twitter:description"
-          content={publicPageMetadata.description}
-        />
+        <meta name="description" content={publicPageMetadata.description} />
+        {publicPageMetadata.canonicalUrl ? <link rel="canonical" href={publicPageMetadata.canonicalUrl} /> : null}
+        <meta property="og:site_name" content={publicPageMetadata.siteName} />
+        <meta property="og:type" content={publicPageMetadata.openGraphType} />
+        <meta property="og:title" content={publicPageMetadata.title} />
+        <meta property="og:description" content={publicPageMetadata.description} />
+        {publicPageMetadata.canonicalUrl ? <meta property="og:url" content={publicPageMetadata.canonicalUrl} /> : null}
+        <meta name="twitter:card" content={publicPageMetadata.twitterCard} />
+        <meta name="twitter:title" content={publicPageMetadata.title} />
+        <meta name="twitter:description" content={publicPageMetadata.description} />
         {structuredDataNodes.map((node, index) => (
           <script
             key={`structured-data-${index}`}
             type="application/ld+json"
-            dangerouslySetInnerHTML={{
-              __html: serializeStructuredData(node),
-            }}
+            dangerouslySetInnerHTML={{ __html: serializeStructuredData(node) }}
           />
         ))}
       </Head>
-      <main
-        style={{
-          minHeight: "100vh",
-          padding: "2.5rem 1rem",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: "1080px",
-            margin: "0 auto",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: "1.5rem",
-            alignItems: "stretch",
-          }}
-        >
-          <section
-            style={{
-              background: "linear-gradient(140deg, rgba(15, 23, 42, 0.96) 0%, rgba(15, 118, 110, 0.92) 100%)",
-              color: "#f8fafc",
-              borderRadius: "28px",
-              padding: "2.2rem",
-              boxShadow: "0 28px 70px rgba(15, 23, 42, 0.24)",
-              display: "grid",
-              gap: "1.1rem",
-            }}
-          >
-            <div style={{ fontSize: "0.82rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "#67e8f9", fontWeight: 800 }}>
-              Adhyantra
+
+      <main className="auth-page">
+        <div className="auth-shell">
+          <section className="hero-panel" aria-labelledby="auth-hero-title">
+            <div className="brand-lockup" aria-label="Adhyantra AI Learning Platform">
+              <div className="brand-mark">A</div>
+              <div>
+                <div className="brand-name">ADHYANTRA</div>
+                <div className="brand-subtitle">AI Learning Platform</div>
+              </div>
             </div>
-            <div>
-              <h1 style={{ margin: 0, fontSize: "clamp(2rem, 3vw, 3rem)", lineHeight: 1.05 }}>
-                Sign in and keep studying.
-              </h1>
-              <p style={{ margin: "1rem 0 0", color: "#cbd5e1", lineHeight: 1.7, maxWidth: "44rem" }}>
-                Enter your email to open Adhyantra and continue with your study account.
+
+            <div className="hero-copy">
+              <h1 id="auth-hero-title">AI-Powered Learning for UPSC, Banking &amp; SSC</h1>
+              <p>
+                Study with AI mentors, adaptive tests, progress tracking, and personalized learning paths designed for
+                competitive exam success.
               </p>
             </div>
-            <div style={{ display: "flex", gap: "0.85rem", flexWrap: "wrap", alignItems: "center" }}>
-              <Link
-                href="/pricing"
-                style={{
-                  textDecoration: "none",
-                  borderRadius: "999px",
-                  padding: "0.72rem 1rem",
-                  background: "rgba(255, 255, 255, 0.14)",
-                  border: "1px solid rgba(103, 232, 249, 0.32)",
-                  color: "#f8fafc",
-                  fontWeight: 800,
-                }}
-              >
+
+            <div className="trust-row" aria-label="Adhyantra trust highlights">
+              {TRUST_ITEMS.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </div>
+
+            <div className="hero-actions" aria-label="Plan and exam entry actions">
+              <Link href="/pricing" className="pricing-link">
                 See plans and features
               </Link>
-              <div style={{ color: "#cbd5e1", lineHeight: 1.6, maxWidth: "32rem", fontSize: "0.95rem" }}>
-                Free covers the core study loop. Premium adds ready-made media, richer lesson formats, and advanced downloads.
+              <span>Free gets you studying quickly. Premium adds richer media and advanced downloads when you need them.</span>
+            </div>
+
+            <div className="exam-section">
+              <div className="section-heading">Choose an exam focus</div>
+              <div className="exam-grid" role="group" aria-label="Choose exam focus after sign-in">
+                {publicExamEntryLinks.map((item) => {
+                  const selected = selectedExamSlug === item.slug;
+                  return (
+                    <button
+                      key={item.slug}
+                      type="button"
+                      className={`exam-card ${selected ? "selected" : ""}`}
+                      aria-pressed={selected}
+                      onClick={() => {
+                        setSelectedExamSlug(item.slug);
+                        void router.replace(item.href, undefined, { shallow: true });
+                      }}
+                    >
+                      <span className="exam-icon" aria-hidden="true">
+                        {EXAM_ICON_BY_SLUG[item.slug]}
+                      </span>
+                      <span>
+                        <strong>{`Start with ${item.label}`}</strong>
+                        <small>{item.summary}</small>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <div style={{ display: "grid", gap: "0.55rem" }}>
-              <div style={{ color: "#cbd5e1", fontSize: "0.92rem", fontWeight: 700 }}>
-                Or choose where you want to land after sign-in
-              </div>
-              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
-                {publicExamEntryLinks.map((item) => (
-                  <Link
-                    key={item.slug}
-                    href={item.href}
-                    style={{
-                      textDecoration: "none",
-                      borderRadius: "999px",
-                      padding: "0.55rem 0.85rem",
-                      background: "rgba(255, 255, 255, 0.1)",
-                      border: "1px solid rgba(255, 255, 255, 0.18)",
-                      color: "#f8fafc",
-                      fontWeight: 700,
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    {`Start with ${item.label}`}
-                  </Link>
+
+            <div className="social-proof" aria-labelledby="social-proof-title">
+              <h2 id="social-proof-title">Built for competitive exam aspirants</h2>
+              <div className="social-grid">
+                {SOCIAL_PROOF_CARDS.map((card) => (
+                  <article className="proof-card" key={card.title}>
+                    <h3>{card.title}</h3>
+                    <p>{card.description}</p>
+                  </article>
                 ))}
               </div>
             </div>
-            <div style={{ display: "flex", gap: "0.65rem", flexWrap: "wrap" }}>
+          </section>
+
+          <section className="login-panel" aria-labelledby="auth-form-title">
+            <div className="login-header">
+              <div className="panel-eyebrow">Secure sign-in</div>
+              <h2 id="auth-form-title">Continue to Adhyantra</h2>
+              <p>Enter your email and we&apos;ll send a secure one-time login code.</p>
+            </div>
+
+            <ol className="auth-stepper" aria-label="Sign-in progress">
               {authSteps.map(({ step, label, state }) => (
-                <div
+                <li
                   key={label}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.55rem",
-                    padding: "0.55rem 0.8rem",
-                    borderRadius: "999px",
-                    background: state === "complete" ? "rgba(20, 184, 166, 0.24)" : state === "active" ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.08)",
-                    border: state === "active" ? "1px solid rgba(103, 232, 249, 0.42)" : "1px solid rgba(255, 255, 255, 0.14)",
-                    fontWeight: 700,
-                    opacity: state === "pending" ? 0.72 : 1,
-                  }}
+                  className={`auth-step ${state}`}
+                  aria-current={state === "active" ? "step" : undefined}
                 >
-                  <span
-                    style={{
-                      width: "26px",
-                      height: "26px",
-                      borderRadius: "50%",
-                      display: "grid",
-                      placeItems: "center",
-                      background: state === "complete" ? "rgba(20, 184, 166, 0.38)" : "rgba(255, 255, 255, 0.16)",
-                      fontSize: "0.86rem",
-                    }}
-                  >
-                    {state === "complete" ? "OK" : step}
+                  <span className="step-number" aria-hidden="true">
+                    {state === "complete" ? "✓" : step}
                   </span>
                   <span>{label}</span>
-                </div>
+                </li>
               ))}
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gap: "0.9rem",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              }}
-            >
-              {[
-                ["One-time code", "Enter your email, then use the latest code to sign in."],
-                ["Saved account", "Your progress, settings, and plan stay with this account."],
-                ["Start studying", "Open Home, Progress, Test, and Tutor after sign-in."],
-              ].map(([title, body]) => (
-                <div
-                  key={title}
-                  style={{
-                    background: "rgba(15, 118, 110, 0.18)",
-                    border: "1px solid rgba(103, 232, 249, 0.18)",
-                    borderRadius: "20px",
-                    padding: "1rem",
-                  }}
-                >
-                  <div style={{ fontWeight: 800, marginBottom: "0.45rem" }}>{title}</div>
-                  <div style={{ color: "#cbd5e1", lineHeight: 1.55, fontSize: "0.95rem" }}>{body}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+            </ol>
 
-          <section
-            style={{
-              background: "var(--panel-bg)",
-              border: "1px solid var(--panel-border)",
-              borderRadius: "28px",
-              padding: "2rem",
-              boxShadow: "0 24px 60px rgba(15, 23, 42, 0.12)",
-              display: "grid",
-              gap: "1rem",
-              alignContent: "start",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: "0.82rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "#0f766e", fontWeight: 800 }}>
-                Sign In
-              </div>
-              <h2 style={{ margin: "0.65rem 0 0.35rem", fontSize: "1.7rem" }}>Email sign-in</h2>
-              <p style={{ margin: 0, color: "var(--muted-text)", lineHeight: 1.6 }}>
-                Enter your email, then use the code to sign in.
-              </p>
+            <div className="next-card">
+              <div>After verification</div>
+              <p>You&apos;ll be redirected to your study dashboard.</p>
             </div>
 
-          <div
-            style={{
-              borderRadius: "18px",
-              padding: "1rem 1.1rem",
-              background: "var(--surface-subtle)",
-              border: "1px solid var(--panel-border)",
-              color: "var(--app-text)",
-            }}
-          >
-            <div style={{ fontWeight: 800, marginBottom: "0.3rem" }}>Next</div>
-            <div style={{ color: "var(--muted-text)", lineHeight: 1.6 }}>
-              {otpRequestState?.isNewUser ? (
-                authTransitionMessage
-              ) : (
-                <>
-                  {nextPath === "/" ? (
-                    authTransitionMessage
-                  ) : (
-                    <>We&apos;ll open <strong>{nextDestinationLabel}</strong>.</>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          <ProductStatusCard
-            tone={otpRequestState ? (challengeExpired ? "error" : "info") : "info"}
-            compact
-            title={otpRequestState ? (challengeExpired ? "Request a fresh code" : "Enter your code") : "Get your code"}
-            message={
-              otpRequestState
-                ? challengeExpired
-                  ? "The previous code is no longer valid. Use resend to get a new one before trying again."
-                  : `Use the latest code for ${otpRequestState.maskedEmail}. ${challengeCountdown ? `It expires in ${challengeCountdown}.` : "It is close to expiry."}`
-                : "Enter your email to get a sign-in code."
-            }
-          />
-
-          <label style={{ display: "grid", gap: "0.45rem" }}>
-            <span style={{ fontWeight: 700, color: "var(--app-text)" }}>Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              disabled={Boolean(otpRequestState) || submittingEmail || submittingCode || signInComplete}
-              style={{
-                padding: "0.85rem 0.95rem",
-                borderRadius: "14px",
-                border: "1px solid #cbd5e1",
-                background: "var(--panel-bg)",
-                color: "var(--app-text)",
-              }}
+            <ProductStatusCard
+              tone={otpRequestState ? (challengeExpired ? "error" : "info") : "info"}
+              compact
+              title={otpRequestState ? (challengeExpired ? "Request a fresh code" : "Enter your code") : "Get your code"}
+              message={
+                otpRequestState
+                  ? challengeExpired
+                    ? "The previous code is no longer valid. Use resend to get a new one before trying again."
+                    : `Use the latest code for ${otpRequestState.maskedEmail}. ${challengeCountdown ? `It expires in ${challengeCountdown}.` : "It is close to expiry."}`
+                  : "Enter your email to get a sign-in code."
+              }
             />
-          </label>
 
-          <label style={{ display: "grid", gap: "0.45rem" }}>
-            <span style={{ fontWeight: 700, color: "var(--app-text)" }}>Display name</span>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder="Optional for returning users"
-              autoComplete="name"
-              disabled={Boolean(otpRequestState) || submittingEmail || submittingCode || signInComplete}
-              style={{
-                padding: "0.85rem 0.95rem",
-                borderRadius: "14px",
-                border: "1px solid #cbd5e1",
-                background: "var(--panel-bg)",
-                color: "var(--app-text)",
-              }}
-            />
-          </label>
+            <div className="field-group">
+              <label htmlFor="auth-email">Email</label>
+              <input
+                id="auth-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                disabled={Boolean(otpRequestState) || submittingEmail || submittingCode || signInComplete}
+                aria-describedby="auth-form-title"
+              />
+            </div>
 
-          {!otpRequestState ? (
-            <button
-              type="button"
-              onClick={() => {
-                void handleRequestOtp();
-              }}
-              disabled={!canRequestCode}
-              style={{
-                border: "none",
-                borderRadius: "16px",
-                padding: "0.95rem 1rem",
-                fontWeight: 800,
-                background: !canRequestCode ? "#cbd5e1" : "#0f766e",
-                color: "#fff",
-                cursor: !canRequestCode ? "not-allowed" : "pointer",
-              }}
-            >
-              {submittingEmail ? "Sending code..." : "Request sign-in code"}
-            </button>
-          ) : (
-            <>
-              <div
-                style={{
-                  borderRadius: "18px",
-                  padding: "1rem",
-                  background: challengeExpired ? "#fef2f2" : otpRequestState.isNewUser ? "#ecfeff" : "#f8fafc",
-                  border: `1px solid ${challengeExpired ? "#fecaca" : otpRequestState.isNewUser ? "#a5f3fc" : "#e2e8f0"}`,
-                  color: "var(--app-text)",
-                }}
-              >
-                <div style={{ fontWeight: 800, marginBottom: "0.35rem" }}>
-                  {challengeExpired ? "Code expired" : otpRequestState.isNewUser ? "Finish setup" : "Code sent"}
-                </div>
-                <div style={{ color: "#475569", lineHeight: 1.55 }}>
-                  {challengeExpired
-                    ? "This code can no longer be used. Request a fresh code and enter the newest one."
-                    : otpRequestState.deliveryMode === "email"
-                    ? `We sent a code to ${otpRequestState.maskedEmail}.`
-                    : otpRequestState.devOtpCode
-                    ? `A local sign-in code is ready for ${otpRequestState.maskedEmail}.`
-                    : `Use the latest local test code for ${otpRequestState.maskedEmail}.`}
-                </div>
-                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.7rem" }}>
-                  {[deliveryLabel, challengeCountdown ? `Expires in ${challengeCountdown}` : "Expired", resendCountdown ? `Resend in ${resendCountdown}` : "Resend ready"].map((label) => (
-                    <span
-                      key={label}
-                      style={{
-                        display: "inline-flex",
-                        borderRadius: "999px",
-                        padding: "0.28rem 0.62rem",
-                        background: "rgba(255, 255, 255, 0.74)",
-                        border: "1px solid rgba(148, 163, 184, 0.28)",
-                        color: "#334155",
-                        fontWeight: 700,
-                        fontSize: "0.78rem",
-                      }}
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
-                {otpRequestState.devOtpCode ? (
-                  <div
-                    style={{
-                      marginTop: "0.7rem",
-                      padding: "0.7rem 0.8rem",
-                      borderRadius: "14px",
-                      background: "#0f172a",
-                      color: "#f8fafc",
-                      fontFamily: "Consolas, Monaco, monospace",
-                      fontSize: "1.05rem",
-                      letterSpacing: "0.12em",
-                    }}
-                  >
-                    Testing code: {otpRequestState.devOtpCode}
-                  </div>
-                ) : null}
-              </div>
-
-              {otpRequestState.isNewUser ? (
-                <ProductStatusCard
-                  tone="info"
-                  compact
-                  title="Start with a quick setup"
-                  message="After verification, confirm your name and study defaults in Settings."
-                />
-              ) : null}
-
-              <label style={{ display: "grid", gap: "0.45rem" }}>
-                <span style={{ fontWeight: 700, color: "var(--app-text)" }}>Verification code</span>
-                <input
-                  type="text"
-                  value={otpCode}
-                  onChange={(event) => {
-                    setOtpCode(normalizeOtpCode(event.target.value));
-                  }}
-                  placeholder="Enter the 6-digit code"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                  disabled={challengeExpired || submittingCode || signInComplete}
-                  style={{
-                    padding: "0.85rem 0.95rem",
-                    borderRadius: "14px",
-                    border: "1px solid #cbd5e1",
-                    background: "var(--panel-bg)",
-                    color: "var(--app-text)",
-                    letterSpacing: "0.18em",
-                  }}
-                />
-              </label>
-
-              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleVerifyOtp();
-                  }}
-                  disabled={!canVerifyCode}
-                  style={{
-                    border: "none",
-                    borderRadius: "16px",
-                    padding: "0.95rem 1rem",
-                    fontWeight: 800,
-                    background: !canVerifyCode ? "#cbd5e1" : "#0f172a",
-                    color: "#fff",
-                    cursor: !canVerifyCode ? "not-allowed" : "pointer",
-                    flex: "1 1 180px",
-                  }}
-                >
-                  {signInComplete
-                    ? "Opening workspace..."
-                    : submittingCode
-                      ? "Verifying..."
-                      : challengeExpired
-                        ? "Code expired"
-                        : "Verify and continue"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!resendCountdown) {
-                      void handleRequestOtp();
-                    }
-                  }}
-                  disabled={submittingEmail || Boolean(resendCountdown)}
-                  style={{
-                    borderRadius: "16px",
-                    padding: "0.95rem 1rem",
-                    fontWeight: 700,
-                    background: "var(--panel-bg)",
-                    color: resendCountdown ? "#94a3b8" : "#0f766e",
-                    border: "1px solid #cbd5e1",
-                    cursor: submittingEmail || resendCountdown ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {resendCountdown ? `Resend in ${resendCountdown}` : submittingEmail ? "Sending..." : challengeExpired ? "Request fresh code" : "Resend code"}
-                </button>
-              </div>
-
+            {!otpRequestState ? (
               <button
                 type="button"
-                onClick={resetOtpFlow}
-                style={{
-                  justifySelf: "start",
-                  border: "none",
-                  background: "transparent",
-                  color: "#1d4ed8",
-                  fontWeight: 700,
-                  padding: 0,
-                  cursor: "pointer",
+                className="primary-button"
+                onClick={() => {
+                  void handleRequestOtp();
                 }}
+                disabled={!canRequestCode}
+                aria-label="Request secure sign-in code"
               >
-                Use a different email
+                {submittingEmail ? "Sending code..." : "Request sign-in code"}
               </button>
-            </>
-          )}
+            ) : (
+              <>
+                <div className={`code-card ${challengeExpired ? "expired" : otpRequestState.isNewUser ? "new-user" : ""}`}>
+                  <div className="code-title">
+                    {challengeExpired ? "Code expired" : otpRequestState.isNewUser ? "Create your account" : "Code sent"}
+                  </div>
+                  <div className="code-message">
+                    {challengeExpired
+                      ? "This code can no longer be used. Request a fresh code and enter the newest one."
+                      : otpRequestState.deliveryMode === "email"
+                      ? `We sent a code to ${otpRequestState.maskedEmail}.`
+                      : otpRequestState.devOtpCode
+                      ? `A local sign-in code is ready for ${otpRequestState.maskedEmail}.`
+                      : `Use the latest local test code for ${otpRequestState.maskedEmail}.`}
+                  </div>
+                  <div className="status-pills" aria-label="Sign-in code status">
+                    {[deliveryLabel, challengeCountdown ? `Expires in ${challengeCountdown}` : "Expired", resendCountdown ? `Resend in ${resendCountdown}` : "Resend ready"].map((label) => (
+                      <span key={label}>{label}</span>
+                    ))}
+                  </div>
+                  {otpRequestState.devOtpCode ? (
+                    <div className="dev-code" aria-label="Local testing sign-in code">
+                      Testing code: {otpRequestState.devOtpCode}
+                    </div>
+                  ) : null}
+                </div>
 
-          {feedback ? (
-            <ProductStatusCard
-              tone="success"
-              compact
-              title={
-                signInComplete
-                  ? "Sign-in confirmed"
-                  : otpRequestState?.deliveryMode === "console" && !otpRequestState.devOtpCode
-                  ? "Check local sign-in code"
-                  : "Code ready"
-              }
-              message={feedback}
-            />
-          ) : null}
+                {showFirstTimeNameField ? (
+                  <div className="field-group">
+                    <label htmlFor="display-name">Display name</label>
+                    <input
+                      id="display-name"
+                      type="text"
+                      value={displayName}
+                      onChange={(event) => setDisplayName(event.target.value)}
+                      placeholder="What should Adhyantra call you?"
+                      autoComplete="name"
+                      disabled={submittingCode || signInComplete}
+                    />
+                  </div>
+                ) : null}
 
-          {error ? (
-            <ProductStatusCard tone="error" compact title={authErrorTitle(error)} message={error} />
-          ) : null}
+                <div className="field-group">
+                  <label htmlFor="otp-code">Verification code</label>
+                  <input
+                    id="otp-code"
+                    type="text"
+                    value={otpCode}
+                    onChange={(event) => {
+                      setOtpCode(normalizeOtpCode(event.target.value));
+                    }}
+                    placeholder="Enter the 6-digit code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    disabled={challengeExpired || submittingCode || signInComplete}
+                    className="otp-input"
+                  />
+                </div>
+
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="primary-button dark"
+                    onClick={() => {
+                      void handleVerifyOtp();
+                    }}
+                    disabled={!canVerifyCode}
+                  >
+                    {signInComplete
+                      ? "Opening workspace..."
+                      : submittingCode
+                        ? "Verifying..."
+                        : challengeExpired
+                          ? "Code expired"
+                          : "Verify and continue"}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      if (!resendCountdown) {
+                        void handleRequestOtp();
+                      }
+                    }}
+                    disabled={submittingEmail || Boolean(resendCountdown)}
+                  >
+                    {resendCountdown ? `Resend in ${resendCountdown}` : submittingEmail ? "Sending..." : challengeExpired ? "Request fresh code" : "Resend code"}
+                  </button>
+                </div>
+
+                <button type="button" className="text-button" onClick={resetOtpFlow}>
+                  Use a different email
+                </button>
+              </>
+            )}
+
+            {feedback ? (
+              <ProductStatusCard
+                tone="success"
+                compact
+                title={
+                  signInComplete
+                    ? "Sign-in confirmed"
+                    : otpRequestState?.deliveryMode === "console" && !otpRequestState.devOtpCode
+                    ? "Check local sign-in code"
+                    : "Code ready"
+                }
+                message={feedback}
+              />
+            ) : null}
+
+            {error ? <ProductStatusCard tone="error" compact title={authErrorTitle(error)} message={error} /> : null}
           </section>
         </div>
+
+        <footer className="auth-footer" aria-label="Adhyantra public links">
+          {FOOTER_LINKS.map((item) => (
+            <Link key={item.href} href={item.href}>
+              {item.label}
+            </Link>
+          ))}
+        </footer>
       </main>
+
+      <style jsx>{`
+        .auth-page {
+          min-height: 100vh;
+          overflow-x: hidden;
+          padding: 2rem 1rem 1.5rem;
+        }
+
+        .auth-shell {
+          width: min(1120px, 100%);
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+          gap: 1.35rem;
+          align-items: start;
+        }
+
+        .hero-panel,
+        .login-panel {
+          min-width: 0;
+          border-radius: 28px;
+          box-shadow: 0 28px 70px rgba(15, 23, 42, 0.18);
+        }
+
+        .hero-panel {
+          background:
+            radial-gradient(circle at top right, rgba(103, 232, 249, 0.22), transparent 32%),
+            linear-gradient(140deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 118, 110, 0.92) 100%);
+          color: #f8fafc;
+          padding: 2.35rem;
+          display: grid;
+          gap: 1.25rem;
+        }
+
+        .login-panel {
+          background: var(--panel-bg);
+          border: 1px solid var(--panel-border);
+          padding: 2rem;
+          display: grid;
+          gap: 1rem;
+          align-content: start;
+        }
+
+        .brand-lockup {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.85rem;
+        }
+
+        .brand-mark {
+          width: 58px;
+          height: 58px;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(135deg, #f8fafc 0%, #99f6e4 100%);
+          color: #0f172a;
+          font-size: 1.6rem;
+          font-weight: 950;
+          box-shadow: 0 16px 40px rgba(103, 232, 249, 0.26);
+        }
+
+        .brand-name {
+          font-size: 1.05rem;
+          letter-spacing: 0.14em;
+          font-weight: 950;
+        }
+
+        .brand-subtitle {
+          margin-top: 0.18rem;
+          color: #a7f3d0;
+          font-weight: 800;
+          font-size: 0.92rem;
+        }
+
+        .hero-copy h1 {
+          margin: 0;
+          font-size: clamp(2.25rem, 4vw, 4rem);
+          line-height: 1.02;
+        }
+
+        .hero-copy p {
+          margin: 1rem 0 0;
+          max-width: 48rem;
+          color: #d9f99d;
+          line-height: 1.72;
+          font-size: 1.06rem;
+        }
+
+        .trust-row {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 0.65rem;
+        }
+
+        .trust-row span,
+        .pricing-link,
+        .status-pills span {
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          background: rgba(255, 255, 255, 0.1);
+          color: #f8fafc;
+          font-weight: 800;
+        }
+
+        .trust-row span {
+          padding: 0.55rem 0.72rem;
+          font-size: 0.88rem;
+        }
+
+        .hero-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+          flex-wrap: wrap;
+          color: #cbd5e1;
+          line-height: 1.6;
+          font-size: 0.94rem;
+        }
+
+        .pricing-link {
+          text-decoration: none;
+          padding: 0.58rem 0.86rem;
+          color: #ccfbf1;
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(153, 246, 228, 0.22);
+        }
+
+        .section-heading,
+        .panel-eyebrow {
+          font-size: 0.78rem;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          font-weight: 900;
+        }
+
+        .section-heading {
+          color: #99f6e4;
+          margin-bottom: 0.68rem;
+        }
+
+        .exam-grid,
+        .social-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.75rem;
+        }
+
+        .exam-card {
+          appearance: none;
+          text-align: left;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 0.7rem;
+          align-items: start;
+          border-radius: 20px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          background: rgba(255, 255, 255, 0.08);
+          color: #f8fafc;
+          padding: 0.9rem;
+          cursor: pointer;
+        }
+
+        .exam-card.selected {
+          border-color: rgba(103, 232, 249, 0.78);
+          background: rgba(14, 165, 233, 0.18);
+          box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.14), 0 16px 34px rgba(8, 145, 178, 0.18);
+        }
+
+        .exam-card strong,
+        .proof-card h3 {
+          display: block;
+          margin: 0;
+          font-weight: 900;
+        }
+
+        .exam-card small {
+          display: block;
+          margin-top: 0.38rem;
+          color: #cbd5e1;
+          line-height: 1.45;
+          font-size: 0.82rem;
+        }
+
+        .exam-icon {
+          width: 34px;
+          height: 34px;
+          border-radius: 14px;
+          display: grid;
+          place-items: center;
+          background: rgba(255, 255, 255, 0.13);
+        }
+
+        .social-proof {
+          display: grid;
+          gap: 0.8rem;
+        }
+
+        .social-proof h2 {
+          margin: 0;
+          font-size: 1.08rem;
+        }
+
+        .proof-card {
+          border-radius: 20px;
+          border: 1px solid rgba(103, 232, 249, 0.17);
+          background: rgba(15, 118, 110, 0.17);
+          padding: 1rem;
+        }
+
+        .proof-card p {
+          margin: 0.48rem 0 0;
+          color: #cbd5e1;
+          line-height: 1.55;
+          font-size: 0.9rem;
+        }
+
+        .login-header {
+          display: grid;
+          gap: 0.35rem;
+        }
+
+        .panel-eyebrow {
+          color: #0f766e;
+        }
+
+        .login-header h2 {
+          margin: 0;
+          font-size: 1.9rem;
+          line-height: 1.1;
+        }
+
+        .login-header p {
+          margin: 0;
+          color: var(--muted-text);
+          line-height: 1.6;
+        }
+
+        .auth-stepper {
+          list-style: none;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.55rem;
+          padding: 0;
+          margin: 0;
+        }
+
+        .auth-step {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: center;
+          gap: 0.5rem;
+          border-radius: 16px;
+          border: 1px solid var(--panel-border);
+          background: var(--surface-subtle);
+          padding: 0.62rem;
+          color: var(--muted-text);
+          font-size: 0.82rem;
+          font-weight: 850;
+        }
+
+        .auth-step.active {
+          color: var(--app-text);
+          border-color: rgba(15, 118, 110, 0.4);
+          box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+        }
+
+        .auth-step.complete {
+          color: #166534;
+          border-color: rgba(22, 163, 74, 0.25);
+          background: rgba(236, 253, 245, 0.94);
+        }
+
+        .step-number {
+          width: 27px;
+          height: 27px;
+          display: grid;
+          place-items: center;
+          border-radius: 999px;
+          background: rgba(15, 118, 110, 0.1);
+          color: #0f766e;
+          font-weight: 950;
+          font-size: 0.78rem;
+        }
+
+        .auth-step.complete .step-number {
+          background: #dcfce7;
+          color: #166534;
+        }
+
+        .next-card,
+        .code-card {
+          border-radius: 18px;
+          padding: 1rem 1.1rem;
+          background: var(--surface-subtle);
+          border: 1px solid var(--panel-border);
+          color: var(--app-text);
+        }
+
+        .next-card div,
+        .code-title {
+          font-weight: 900;
+          margin-bottom: 0.3rem;
+        }
+
+        .next-card p,
+        .code-message {
+          margin: 0;
+          color: var(--muted-text);
+          line-height: 1.55;
+        }
+
+        .field-group {
+          display: grid;
+          gap: 0.45rem;
+        }
+
+        .field-group label {
+          font-weight: 800;
+          color: var(--app-text);
+        }
+
+        .field-group input {
+          width: 100%;
+          min-width: 0;
+          padding: 0.9rem 0.95rem;
+          border-radius: 14px;
+          border: 1px solid #cbd5e1;
+          background: var(--panel-bg);
+          color: var(--app-text);
+        }
+
+        .otp-input {
+          letter-spacing: 0.18em;
+        }
+
+        .primary-button,
+        .secondary-button,
+        .text-button {
+          cursor: pointer;
+        }
+
+        .primary-button,
+        .secondary-button {
+          border-radius: 16px;
+          padding: 0.98rem 1rem;
+          font-weight: 900;
+        }
+
+        .primary-button {
+          border: none;
+          background: #0f766e;
+          color: #ffffff;
+          box-shadow: 0 14px 28px rgba(15, 118, 110, 0.2);
+        }
+
+        .primary-button.dark {
+          background: #0f172a;
+          box-shadow: 0 14px 28px rgba(15, 23, 42, 0.18);
+        }
+
+        .secondary-button {
+          background: var(--panel-bg);
+          color: #0f766e;
+          border: 1px solid #cbd5e1;
+        }
+
+        .primary-button:disabled,
+        .secondary-button:disabled {
+          background: #cbd5e1;
+          color: #64748b;
+          box-shadow: none;
+          cursor: not-allowed;
+        }
+
+        .button-row {
+          display: flex;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+
+        .button-row .primary-button {
+          flex: 1 1 180px;
+        }
+
+        .text-button {
+          justify-self: start;
+          border: none;
+          background: transparent;
+          color: #1d4ed8;
+          font-weight: 800;
+          padding: 0;
+        }
+
+        .code-card {
+          background: #f8fafc;
+          border-color: #e2e8f0;
+        }
+
+        .code-card.new-user {
+          background: #ecfeff;
+          border-color: #a5f3fc;
+        }
+
+        .code-card.expired {
+          background: #fef2f2;
+          border-color: #fecaca;
+        }
+
+        .status-pills {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
+          margin-top: 0.72rem;
+        }
+
+        .status-pills span {
+          padding: 0.3rem 0.62rem;
+          background: rgba(255, 255, 255, 0.78);
+          border-color: rgba(148, 163, 184, 0.28);
+          color: #334155;
+          font-size: 0.78rem;
+        }
+
+        .dev-code {
+          margin-top: 0.7rem;
+          padding: 0.7rem 0.8rem;
+          border-radius: 14px;
+          background: #0f172a;
+          color: #f8fafc;
+          font-family: Consolas, Monaco, monospace;
+          font-size: 1.05rem;
+          letter-spacing: 0.12em;
+        }
+
+        .auth-footer {
+          width: min(1120px, 100%);
+          margin: 1rem auto 0;
+          display: flex;
+          justify-content: center;
+          gap: 0.45rem 1rem;
+          flex-wrap: wrap;
+          color: var(--muted-text);
+          font-size: 0.9rem;
+        }
+
+        .auth-footer a {
+          text-decoration: none;
+          font-weight: 750;
+        }
+
+        .auth-footer a:hover,
+        .pricing-link:hover,
+        .text-button:hover {
+          text-decoration: underline;
+        }
+
+        .exam-card:hover,
+        .primary-button:not(:disabled):hover,
+        .secondary-button:not(:disabled):hover {
+          transform: translateY(-1px);
+        }
+
+        .exam-card:focus-visible,
+        .pricing-link:focus-visible,
+        .primary-button:focus-visible,
+        .secondary-button:focus-visible,
+        .text-button:focus-visible,
+        .auth-footer a:focus-visible,
+        .field-group input:focus-visible {
+          outline: 3px solid rgba(103, 232, 249, 0.62);
+          outline-offset: 3px;
+        }
+
+        .field-group input:focus-visible {
+          border-color: #0f766e;
+          box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+        }
+
+        @media (max-width: 980px) {
+          .auth-shell {
+            grid-template-columns: 1fr;
+          }
+
+          .login-panel {
+            order: -1;
+          }
+        }
+
+        @media (max-width: 767px) {
+          .auth-page {
+            padding: 0.8rem 0.75rem 1.75rem;
+          }
+
+          .hero-panel,
+          .login-panel {
+            border-radius: 22px;
+          }
+
+          .hero-panel {
+            padding: 1.3rem;
+          }
+
+          .login-panel {
+            padding: 1.25rem;
+          }
+
+          .brand-mark {
+            width: 50px;
+            height: 50px;
+            border-radius: 16px;
+          }
+
+          .hero-copy h1 {
+            font-size: 2.15rem;
+          }
+
+          .trust-row,
+          .exam-grid,
+          .social-grid,
+          .auth-stepper {
+            grid-template-columns: 1fr;
+          }
+
+          .hero-actions {
+            align-items: flex-start;
+          }
+
+          .button-row {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .auth-footer {
+            justify-content: flex-start;
+            padding: 0 0.25rem;
+          }
+        }
+      `}</style>
     </>
   );
 }

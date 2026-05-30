@@ -2,9 +2,10 @@ import { useRouter } from "next/router";
 import { useEffect, type ReactNode } from "react";
 
 import { useAuth } from "../lib/auth";
+import { PUBLIC_INFO_ROUTES } from "../lib/seo";
 import ProductStatusCard from "./ProductStatusCard";
 
-const PUBLIC_ROUTES = new Set(["/auth", "/pricing", "/exams/[exam]", "/404"]);
+const PUBLIC_ROUTES = new Set(["/auth", "/pricing", "/exams/[exam]", "/404", ...PUBLIC_INFO_ROUTES]);
 
 function loadingScreen(title: string, message: string) {
   return (
