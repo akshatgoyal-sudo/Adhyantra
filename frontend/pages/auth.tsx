@@ -41,26 +41,27 @@ const EXAM_ICON_BY_SLUG: Record<PublicExamLandingSlug, string> = {
   ssc: "📚",
 };
 
-const TRUST_ITEMS = [
-  "✓ Secure Email Login",
-  "✓ AI Study Mentor",
-  "✓ Progress Saved Automatically",
-  "✓ UPSC • Banking • SSC",
-];
+const EXAM_CARD_ORDER: PublicExamLandingSlug[] = ["upsc", "ssc", "banking"];
 
-const SOCIAL_PROOF_CARDS = [
-  {
-    title: "UPSC Preparation",
-    description: "Build conceptual clarity across GS subjects with tutor-led practice and revision loops.",
+const EXAM_CARD_COPY: Record<PublicExamLandingSlug, { title: string; description: string }> = {
+  upsc: {
+    title: "UPSC CSE",
+    description: "Prelims, Mains & Interview preparation",
   },
-  {
-    title: "Banking Exams",
-    description: "Revise financial awareness, regulation basics, and high-speed practice in one workspace.",
+  ssc: {
+    title: "SSC",
+    description: "CGL, CHSL, MTS and more",
   },
-  {
-    title: "SSC Exams",
-    description: "Keep general awareness prep compact, repeatable, and easy to revisit before tests.",
+  banking: {
+    title: "Banking",
+    description: "IBPS, SBI PO, Clerk & RBI",
   },
+};
+
+const TRUST_ITEMS = [
+  "✓ AI-powered planning",
+  "✓ Email-secured account",
+  "✓ Progress saved automatically",
 ];
 
 const FOOTER_LINKS = [
@@ -228,10 +229,10 @@ export default function AuthPage() {
     () =>
       getPublicExamLandings().map((landing) => ({
         slug: landing.slug,
-        label: landing.label,
+        label: EXAM_CARD_COPY[landing.slug].title,
         href: buildPublicExamAuthHref(landing.slug),
-        summary: landing.startSummary,
-      })),
+        summary: EXAM_CARD_COPY[landing.slug].description,
+      })).sort((left, right) => EXAM_CARD_ORDER.indexOf(left.slug) - EXAM_CARD_ORDER.indexOf(right.slug)),
     [],
   );
 
@@ -267,20 +268,20 @@ export default function AuthPage() {
   const canVerifyCode = Boolean(otpRequestState) && otpCode.length === 6 && !challengeExpired && !submittingCode && !signInComplete;
   const showFirstTimeNameField = Boolean(otpRequestState?.isNewUser) && !signInComplete;
   const authSteps: { step: string; label: string; state: AuthStepState }[] = [
-    { step: "1", label: "Request code", state: otpRequestState ? "complete" : "active" },
+    { step: "1", label: "Request Code", state: otpRequestState ? "complete" : "active" },
     {
       step: "2",
-      label: "Verify code",
+      label: "Verify Code",
       state: signInComplete ? "complete" : otpRequestState ? "active" : "pending",
     },
-    { step: "3", label: "Open dashboard", state: signInComplete ? "active" : "pending" },
+    { step: "3", label: "Enter Adhyantra", state: signInComplete ? "active" : "pending" },
   ];
   const publicPageMetadata = useMemo(
     () =>
       buildPublicPageMetadata({
-        title: "AI-Powered Learning for UPSC, Banking & SSC",
+        title: "Your AI Study Companion for UPSC, SSC & Banking",
         description:
-          "Sign in to Adhyantra for AI mentors, adaptive tests, progress tracking, and personalized learning paths for competitive exam preparation.",
+          "Personalized plans, smart revision, AI mentoring, mock analysis and progress tracking in one place.",
         canonicalPath: "/auth",
       }),
     [],
@@ -428,19 +429,19 @@ export default function AuthPage() {
       <main className="auth-page">
         <div className="auth-shell">
           <section className="hero-panel" aria-labelledby="auth-hero-title">
+            <div className="hero-glow" aria-hidden="true" />
             <div className="brand-lockup" aria-label="Adhyantra AI Learning Platform">
               <div className="brand-mark">A</div>
               <div>
                 <div className="brand-name">ADHYANTRA</div>
-                <div className="brand-subtitle">AI Learning Platform</div>
+                <div className="brand-subtitle">Competitive Exam AI Platform</div>
               </div>
             </div>
 
             <div className="hero-copy">
-              <h1 id="auth-hero-title">AI-Powered Learning for UPSC, Banking &amp; SSC</h1>
+              <h1 id="auth-hero-title">Your AI Study Companion for UPSC, SSC &amp; Banking</h1>
               <p>
-                Study with AI mentors, adaptive tests, progress tracking, and personalized learning paths designed for
-                competitive exam success.
+                Personalized plans, smart revision, AI mentoring, mock analysis and progress tracking in one place.
               </p>
             </div>
 
@@ -450,15 +451,8 @@ export default function AuthPage() {
               ))}
             </div>
 
-            <div className="hero-actions" aria-label="Plan and exam entry actions">
-              <Link href="/pricing" className="pricing-link">
-                See plans and features
-              </Link>
-              <span>Free gets you studying quickly. Premium adds richer media and advanced downloads when you need them.</span>
-            </div>
-
             <div className="exam-section">
-              <div className="section-heading">Choose an exam focus</div>
+              <div className="section-heading">Choose your exam destination</div>
               <div className="exam-grid" role="group" aria-label="Choose exam focus after sign-in">
                 {publicExamEntryLinks.map((item) => {
                   const selected = selectedExamSlug === item.slug;
@@ -477,7 +471,7 @@ export default function AuthPage() {
                         {EXAM_ICON_BY_SLUG[item.slug]}
                       </span>
                       <span>
-                        <strong>{`Start with ${item.label}`}</strong>
+                        <strong>{item.label}</strong>
                         <small>{item.summary}</small>
                       </span>
                     </button>
@@ -486,24 +480,19 @@ export default function AuthPage() {
               </div>
             </div>
 
-            <div className="social-proof" aria-labelledby="social-proof-title">
-              <h2 id="social-proof-title">Built for competitive exam aspirants</h2>
-              <div className="social-grid">
-                {SOCIAL_PROOF_CARDS.map((card) => (
-                  <article className="proof-card" key={card.title}>
-                    <h3>{card.title}</h3>
-                    <p>{card.description}</p>
-                  </article>
-                ))}
-              </div>
+            <div className="hero-actions" aria-label="Plan and feature link">
+              <span>Start with your study account now.</span>
+              <Link href="/pricing" className="pricing-link">
+                See plans and features
+              </Link>
             </div>
           </section>
 
           <section className="login-panel" aria-labelledby="auth-form-title">
             <div className="login-header">
-              <div className="panel-eyebrow">Secure sign-in</div>
+              <div className="panel-eyebrow">Secure entry</div>
               <h2 id="auth-form-title">Continue to Adhyantra</h2>
-              <p>Enter your email and we&apos;ll send a secure one-time login code.</p>
+              <p>Enter your email and we&apos;ll send a secure one-time code to open your study workspace.</p>
             </div>
 
             <ol className="auth-stepper" aria-label="Sign-in progress">
@@ -556,7 +545,7 @@ export default function AuthPage() {
             {!otpRequestState ? (
               <button
                 type="button"
-                className="primary-button"
+                className={`primary-button ${submittingEmail ? "loading" : ""}`}
                 onClick={() => {
                   void handleRequestOtp();
                 }}
@@ -628,7 +617,7 @@ export default function AuthPage() {
                 <div className="button-row">
                   <button
                     type="button"
-                    className="primary-button dark"
+                    className={`primary-button dark ${submittingCode || signInComplete ? "loading" : ""}`}
                     onClick={() => {
                       void handleVerifyOtp();
                     }}
@@ -695,59 +684,86 @@ export default function AuthPage() {
         .auth-page {
           min-height: 100vh;
           overflow-x: hidden;
-          padding: 2rem 1rem 1.5rem;
+          padding: 1.6rem 1rem 1.3rem;
         }
 
         .auth-shell {
-          width: min(1120px, 100%);
+          width: min(1180px, 100%);
           margin: 0 auto;
           display: grid;
-          grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
-          gap: 1.35rem;
-          align-items: start;
+          grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.82fr);
+          gap: 1.1rem;
+          align-items: stretch;
         }
 
         .hero-panel,
         .login-panel {
           min-width: 0;
-          border-radius: 28px;
-          box-shadow: 0 28px 70px rgba(15, 23, 42, 0.18);
+          border-radius: 30px;
         }
 
         .hero-panel {
+          position: relative;
+          overflow: hidden;
           background:
-            radial-gradient(circle at top right, rgba(103, 232, 249, 0.22), transparent 32%),
+            linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 30%),
             linear-gradient(140deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 118, 110, 0.92) 100%);
           color: #f8fafc;
-          padding: 2.35rem;
+          padding: clamp(1.4rem, 2.6vw, 2.4rem);
           display: grid;
-          gap: 1.25rem;
+          gap: 1.08rem;
+          align-content: start;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          box-shadow: 0 30px 80px rgba(15, 23, 42, 0.24);
         }
 
         .login-panel {
-          background: var(--panel-bg);
-          border: 1px solid var(--panel-border);
-          padding: 2rem;
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88)),
+            var(--panel-bg);
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          padding: clamp(1.35rem, 2.4vw, 2.25rem);
           display: grid;
-          gap: 1rem;
+          gap: 1.05rem;
           align-content: start;
+          box-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
+          backdrop-filter: blur(18px);
+        }
+
+        :global(:root[data-theme="dark"]) .login-panel {
+          background:
+            linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.86)),
+            var(--panel-bg);
+          border-color: rgba(71, 85, 105, 0.72);
+        }
+
+        .hero-glow {
+          position: absolute;
+          inset: -18% -14% auto auto;
+          width: 380px;
+          aspect-ratio: 1;
+          border-radius: 999px;
+          background: radial-gradient(circle, rgba(103, 232, 249, 0.32), transparent 62%);
+          pointer-events: none;
         }
 
         .brand-lockup {
+          position: relative;
           display: inline-flex;
           align-items: center;
           gap: 0.85rem;
+          z-index: 1;
         }
 
         .brand-mark {
-          width: 58px;
-          height: 58px;
-          border-radius: 18px;
+          width: 62px;
+          height: 62px;
+          border-radius: 20px;
           display: grid;
           place-items: center;
           background: linear-gradient(135deg, #f8fafc 0%, #99f6e4 100%);
           color: #0f172a;
-          font-size: 1.6rem;
+          font-size: 1.72rem;
           font-weight: 950;
           box-shadow: 0 16px 40px rgba(103, 232, 249, 0.26);
         }
@@ -765,24 +781,33 @@ export default function AuthPage() {
           font-size: 0.92rem;
         }
 
+        .hero-copy,
+        .trust-row,
+        .hero-actions,
+        .exam-section {
+          position: relative;
+          z-index: 1;
+        }
+
         .hero-copy h1 {
           margin: 0;
-          font-size: clamp(2.25rem, 4vw, 4rem);
-          line-height: 1.02;
+          max-width: 760px;
+          font-size: clamp(2.35rem, 4.2vw, 4.45rem);
+          line-height: 1;
         }
 
         .hero-copy p {
-          margin: 1rem 0 0;
-          max-width: 48rem;
-          color: #d9f99d;
-          line-height: 1.72;
-          font-size: 1.06rem;
+          margin: 0.9rem 0 0;
+          max-width: 42rem;
+          color: #dbeafe;
+          line-height: 1.68;
+          font-size: 1.04rem;
         }
 
         .trust-row {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 0.65rem;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0.58rem;
         }
 
         .trust-row span,
@@ -796,8 +821,8 @@ export default function AuthPage() {
         }
 
         .trust-row span {
-          padding: 0.55rem 0.72rem;
-          font-size: 0.88rem;
+          padding: 0.58rem 0.7rem;
+          font-size: 0.84rem;
         }
 
         .hero-actions {
@@ -805,17 +830,20 @@ export default function AuthPage() {
           align-items: center;
           gap: 0.8rem;
           flex-wrap: wrap;
-          color: #cbd5e1;
+          justify-content: space-between;
+          color: #dbeafe;
           line-height: 1.6;
           font-size: 0.94rem;
+          padding-top: 0.1rem;
         }
 
         .pricing-link {
           text-decoration: none;
-          padding: 0.58rem 0.86rem;
+          padding: 0.5rem 0.75rem;
           color: #ccfbf1;
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(153, 246, 228, 0.22);
+          background: rgba(255, 255, 255, 0.06);
+          border-color: rgba(153, 246, 228, 0.18);
+          font-size: 0.86rem;
         }
 
         .section-heading,
@@ -828,83 +856,61 @@ export default function AuthPage() {
 
         .section-heading {
           color: #99f6e4;
-          margin-bottom: 0.68rem;
+          margin-bottom: 0.62rem;
         }
 
-        .exam-grid,
-        .social-grid {
+        .exam-grid {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 0.75rem;
+          gap: 0.7rem;
         }
 
         .exam-card {
           appearance: none;
           text-align: left;
           display: grid;
-          grid-template-columns: auto minmax(0, 1fr);
-          gap: 0.7rem;
+          grid-template-columns: 42px minmax(0, 1fr);
+          gap: 0.78rem;
           align-items: start;
-          border-radius: 20px;
-          border: 1px solid rgba(255, 255, 255, 0.16);
-          background: rgba(255, 255, 255, 0.08);
+          border-radius: 22px;
+          border: 1px solid rgba(255, 255, 255, 0.17);
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.07));
           color: #f8fafc;
-          padding: 0.9rem;
+          padding: 1rem;
           cursor: pointer;
+          min-height: 128px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
         }
 
         .exam-card.selected {
-          border-color: rgba(103, 232, 249, 0.78);
-          background: rgba(14, 165, 233, 0.18);
-          box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.14), 0 16px 34px rgba(8, 145, 178, 0.18);
+          border-color: rgba(103, 232, 249, 0.86);
+          background: linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(20, 184, 166, 0.14));
+          box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.16), 0 18px 40px rgba(8, 145, 178, 0.2);
         }
 
-        .exam-card strong,
-        .proof-card h3 {
+        .exam-card strong {
           display: block;
           margin: 0;
           font-weight: 900;
+          font-size: 1rem;
         }
 
         .exam-card small {
           display: block;
-          margin-top: 0.38rem;
-          color: #cbd5e1;
+          margin-top: 0.42rem;
+          color: #dbeafe;
           line-height: 1.45;
           font-size: 0.82rem;
         }
 
         .exam-icon {
-          width: 34px;
-          height: 34px;
-          border-radius: 14px;
+          width: 42px;
+          height: 42px;
+          border-radius: 16px;
           display: grid;
           place-items: center;
-          background: rgba(255, 255, 255, 0.13);
-        }
-
-        .social-proof {
-          display: grid;
-          gap: 0.8rem;
-        }
-
-        .social-proof h2 {
-          margin: 0;
-          font-size: 1.08rem;
-        }
-
-        .proof-card {
-          border-radius: 20px;
-          border: 1px solid rgba(103, 232, 249, 0.17);
-          background: rgba(15, 118, 110, 0.17);
-          padding: 1rem;
-        }
-
-        .proof-card p {
-          margin: 0.48rem 0 0;
-          color: #cbd5e1;
-          line-height: 1.55;
-          font-size: 0.9rem;
+          background: rgba(255, 255, 255, 0.14);
+          font-size: 1.2rem;
         }
 
         .login-header {
@@ -918,7 +924,7 @@ export default function AuthPage() {
 
         .login-header h2 {
           margin: 0;
-          font-size: 1.9rem;
+          font-size: clamp(1.85rem, 2.7vw, 2.35rem);
           line-height: 1.1;
         }
 
@@ -939,16 +945,17 @@ export default function AuthPage() {
 
         .auth-step {
           display: grid;
-          grid-template-columns: auto minmax(0, 1fr);
+          grid-template-columns: 30px minmax(0, 1fr);
           align-items: center;
           gap: 0.5rem;
-          border-radius: 16px;
+          border-radius: 18px;
           border: 1px solid var(--panel-border);
           background: var(--surface-subtle);
-          padding: 0.62rem;
+          padding: 0.7rem;
           color: var(--muted-text);
           font-size: 0.82rem;
           font-weight: 850;
+          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
         }
 
         .auth-step.active {
@@ -961,11 +968,12 @@ export default function AuthPage() {
           color: #166534;
           border-color: rgba(22, 163, 74, 0.25);
           background: rgba(236, 253, 245, 0.94);
+          animation: successRise 260ms ease both;
         }
 
         .step-number {
-          width: 27px;
-          height: 27px;
+          width: 30px;
+          height: 30px;
           display: grid;
           place-items: center;
           border-radius: 999px;
@@ -1015,11 +1023,16 @@ export default function AuthPage() {
         .field-group input {
           width: 100%;
           min-width: 0;
-          padding: 0.9rem 0.95rem;
-          border-radius: 14px;
-          border: 1px solid #cbd5e1;
+          padding: 0.98rem 1rem;
+          border-radius: 16px;
+          border: 1px solid rgba(148, 163, 184, 0.54);
           background: var(--panel-bg);
           color: var(--app-text);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+        }
+
+        :global(:root[data-theme="dark"]) .field-group input {
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
         }
 
         .otp-input {
@@ -1034,21 +1047,27 @@ export default function AuthPage() {
 
         .primary-button,
         .secondary-button {
-          border-radius: 16px;
-          padding: 0.98rem 1rem;
+          min-height: 52px;
+          border-radius: 18px;
+          padding: 1rem 1.05rem;
           font-weight: 900;
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.55rem;
         }
 
         .primary-button {
           border: none;
-          background: #0f766e;
+          background: linear-gradient(135deg, #0f766e, #115e59);
           color: #ffffff;
-          box-shadow: 0 14px 28px rgba(15, 118, 110, 0.2);
+          box-shadow: 0 18px 36px rgba(15, 118, 110, 0.24);
         }
 
         .primary-button.dark {
-          background: #0f172a;
-          box-shadow: 0 14px 28px rgba(15, 23, 42, 0.18);
+          background: linear-gradient(135deg, #0f172a, #1e293b);
+          box-shadow: 0 18px 36px rgba(15, 23, 42, 0.22);
         }
 
         .secondary-button {
@@ -1063,6 +1082,16 @@ export default function AuthPage() {
           color: #64748b;
           box-shadow: none;
           cursor: not-allowed;
+        }
+
+        .primary-button.loading::before {
+          content: "";
+          width: 16px;
+          height: 16px;
+          border-radius: 999px;
+          border: 2px solid rgba(255, 255, 255, 0.55);
+          border-top-color: #ffffff;
+          animation: spin 700ms linear infinite;
         }
 
         .button-row {
@@ -1087,6 +1116,7 @@ export default function AuthPage() {
         .code-card {
           background: #f8fafc;
           border-color: #e2e8f0;
+          animation: panelIn 220ms ease both;
         }
 
         .code-card.new-user {
@@ -1150,7 +1180,7 @@ export default function AuthPage() {
         .exam-card:hover,
         .primary-button:not(:disabled):hover,
         .secondary-button:not(:disabled):hover {
-          transform: translateY(-1px);
+          transform: translateY(-2px);
         }
 
         .exam-card:focus-visible,
@@ -1169,19 +1199,41 @@ export default function AuthPage() {
           box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
         }
 
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        @keyframes panelIn {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes successRise {
+          from {
+            transform: translateY(4px);
+          }
+          to {
+            transform: translateY(0);
+          }
+        }
+
         @media (max-width: 980px) {
           .auth-shell {
             grid-template-columns: 1fr;
-          }
-
-          .login-panel {
-            order: -1;
           }
         }
 
         @media (max-width: 767px) {
           .auth-page {
-            padding: 0.8rem 0.75rem 1.75rem;
+            padding: 0.75rem 0.7rem 1.5rem;
           }
 
           .hero-panel,
@@ -1190,7 +1242,7 @@ export default function AuthPage() {
           }
 
           .hero-panel {
-            padding: 1.3rem;
+            padding: 1.25rem;
           }
 
           .login-panel {
@@ -1204,18 +1256,29 @@ export default function AuthPage() {
           }
 
           .hero-copy h1 {
-            font-size: 2.15rem;
+            font-size: 2.08rem;
           }
 
           .trust-row,
-          .exam-grid,
-          .social-grid,
           .auth-stepper {
             grid-template-columns: 1fr;
           }
 
+          .exam-grid {
+            display: flex;
+            overflow-x: auto;
+            padding: 0.15rem 0 0.45rem;
+            scroll-snap-type: x mandatory;
+          }
+
+          .exam-card {
+            min-width: 244px;
+            scroll-snap-align: start;
+          }
+
           .hero-actions {
             align-items: flex-start;
+            justify-content: flex-start;
           }
 
           .button-row {
