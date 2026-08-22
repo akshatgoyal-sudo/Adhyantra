@@ -1,16 +1,21 @@
 # Adhyantra
 
-Adhyantra is a deliberately small local full-stack MVP for UPSC-style study. It currently ships with UPSC Polity content plus a small History starter slice, and the app now has a basic subject layer so quizzes, progress, revision, and coaching data are all scoped by subject. It teaches a topic, answers follow-up doubts with a hybrid AI flow, generates MCQ quizzes, evaluates answers, stores quiz history in SQLite, and adapts revision and next-step recommendations based on student performance.
+Adhyantra is a full-stack, subject-aware study application. The frontend is Next.js 16.2.1 with React 18.3.1, TypeScript, and the Pages Router. The backend is FastAPI with SQLAlchemy. Local development and deterministic tests use SQLite; deployed environments are expected to use PostgreSQL through the tracked `psycopg2-binary` driver unless SQLite is explicitly allowed for a small deployment.
+
+UPSC has the deepest native knowledge-base coverage. SSC and Banking are selectable exam profiles, but their native material is limited and retrieval can fall back to the shared general-studies corpus. Treat those profiles as product scaffolding with partial content, not equivalent multi-exam corpus depth.
 
 ## What is included
 
-- FastAPI backend with SQLite storage and modular services
-- Next.js frontend with Tutor, Test, and Progress pages
-- Local markdown knowledge base with dynamically discovered subject-scoped topics (currently Polity plus a small History starter slice)
+- FastAPI and SQLAlchemy backend with SQLite/PostgreSQL database support
+- Next.js 16.2.1, React 18.3.1, and TypeScript frontend using the Pages Router
+- Local markdown knowledge base with dynamically discovered subject-scoped topics and shared-corpus fallback
 - Gemini-first AI provider abstraction with Groq fallback, Mistral QA/testing support, and explicit mock fallback
-- Configurable AI provider settings through environment variables
+- Email-OTP authentication over console, SMTP, or Resend, with DB-backed sessions
+- Stripe/Razorpay billing adapters, premium entitlements and usage enforcement, disabled by default until configured
+- Role-based content and operations administration endpoints
+- Lesson exports, TTS audio jobs, and scene/narration ZIP packages; no encoded MP4 renderer
 - Adaptive quiz difficulty, weak-topic detection, and lightweight revision planning
-- Basic backend tests for topics, tutor fallbacks, quiz flow, and adaptive logic
+- Deterministic backend tests covering product, security, billing, media, operations, and setup behavior
 
 ## Project structure
 
@@ -18,11 +23,30 @@ Adhyantra is a deliberately small local full-stack MVP for UPSC-style study. It 
 project-root/
   backend/
   frontend/
+  docs/
+  requirements.txt
+  package-lock.json
   .env.example
+  .env.staging.example
   README.md
 ```
 
 ## Environment variables
+
+No environment variable is required for the safe local default: it uses SQLite, mock AI, console OTP delivery, disabled billing/TTS, and local media storage. The application reads an optional untracked `.env`, but clean setup and tests must not depend on a developer's existing file. Never commit or paste real secret values into documentation.
+
+Conditionally required names:
+
+- PostgreSQL: `EXAM_GURU_DB_URL`
+- Gemini/Groq live AI: `GEMINI_API_KEY`, `GROQ_API_KEY`
+- SMTP OTP: `EMAIL_FROM_ADDRESS`, `SMTP_HOST`; `SMTP_USERNAME` and `SMTP_PASSWORD` when the server requires authentication
+- Resend OTP: `EMAIL_FROM_ADDRESS`, `RESEND_API_KEY`
+- Stripe billing: `PAYMENT_PROVIDER`, `PAYMENT_PREMIUM_PRICE_ID`, `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`
+- Razorpay billing: `PAYMENT_PROVIDER`, `PAYMENT_PREMIUM_PRICE_ID`, `PAYMENT_RAZORPAY_KEY_ID`, `PAYMENT_RAZORPAY_KEY_SECRET`, `PAYMENT_RAZORPAY_WEBHOOK_SECRET`
+- OpenAI TTS: `TTS_PROVIDER`, `TTS_OPENAI_API_KEY`
+- Deployed origins/security: `FRONTEND_ORIGIN`, `BACKEND_PUBLIC_URL`, `CORS_ALLOWED_ORIGINS`, `TRUSTED_HOSTS`, `SECURE_SESSION_COOKIES`
+
+Optional configuration names are grouped in `.env.example`: `APP_ENV`, release metadata, AI provider/model/base-URL settings, `EXAM_GURU_EXAM`, `EXAM_GURU_SUBJECT`, frontend API/debug settings, session/cookie settings, OTP limits, SMTP/Resend settings, payment settings, TTS settings, media-worker/storage settings, and staging smoke-check settings. `.env.staging.example` documents the stricter deployed contract with blank secret fields.
 
 Copy `.env.example` to `.env` in the project root if you want to override defaults for the backend.
 
@@ -56,30 +80,23 @@ Supported variables:
 - `SESSION_COOKIE_DOMAIN` / `SESSION_COOKIE_PATH`: optional cookie scope settings for deployments that need a shared domain or non-root path.
 - `SECURE_SESSION_COOKIES`: force secure session cookies. `APP_ENV=staging` and `APP_ENV=production` also force secure cookies.
 - `EMAIL_DELIVERY_MODE`: defaults to `console` for local development. Use `email` or `smtp` for real OTP email delivery. `EMAIL_OTP_DELIVERY_MODE` is still accepted as a backward-compatible alias.
-- `EMAIL_TRANSPORT`: real-email transport selector. `smtp` is implemented now; `EMAIL_PROVIDER` is accepted as a compatibility alias, and future provider-backed transports should be added behind this setting instead of branching auth code.
+- `EMAIL_TRANSPORT`: real-email transport selector. `smtp` and `resend` are implemented; `EMAIL_PROVIDER` is accepted as a compatibility alias. Console delivery is selected through `EMAIL_DELIVERY_MODE=console`, not as a deployed transport.
 - `AUTH_DEV_RETURN_OTP`: defaults to `false`. Set it to `true` only with `EMAIL_DELIVERY_MODE=console` when you intentionally want the local auth response to expose the development OTP in the browser. It is ignored for real email delivery and suppressed in staging/production.
 - `EMAIL_OTP_MAX_VERIFY_ATTEMPTS_PER_HOUR_PER_EMAIL`: caps verification attempts for one email in a rolling hour.
 - `EMAIL_OTP_MAX_VERIFY_ATTEMPTS_PER_HOUR_PER_IP`: caps verification attempts from one connection in a rolling hour.
 - `EMAIL_FROM_NAME`, `EMAIL_FROM_ADDRESS`, `EMAIL_REPLY_TO_ADDRESS`: sender and reply-to identity for real email delivery.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_TIMEOUT_SECONDS`: SMTP transport settings used when real email delivery is enabled. `SMTP_USE_TLS=true` uses STARTTLS; `SMTP_USE_SSL=true` uses implicit TLS and skips STARTTLS.
+- `RESEND_API_KEY`: Resend credential required only when `EMAIL_TRANSPORT=resend`. The pinned Resend 2.4.0 SDK supports the `resend.api_key` and `resend.Emails.send(...)` API used by the backend.
+- `PAYMENT_PROVIDER`, `PAYMENT_TIMEOUT_SECONDS`, `PAYMENT_PREMIUM_PRICE_ID`: billing provider selection and shared checkout configuration. Billing stays disabled by default.
+- `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`, `PAYMENT_STRIPE_BASE_URL`: Stripe checkout/webhook settings.
+- `PAYMENT_RAZORPAY_KEY_ID`, `PAYMENT_RAZORPAY_KEY_SECRET`, `PAYMENT_RAZORPAY_WEBHOOK_SECRET`, `PAYMENT_RAZORPAY_BASE_URL`, `PAYMENT_RAZORPAY_TOTAL_COUNT`: Razorpay subscription/webhook settings.
+- `TTS_PROVIDER`, `TTS_TIMEOUT_SECONDS`, `TTS_OUTPUT_FORMAT`, `TTS_OPENAI_MODEL`, `TTS_OPENAI_API_KEY`, `TTS_OPENAI_BASE_URL`, `TTS_OPENAI_VOICE`: optional TTS generation settings; disabled by default.
+- `MEDIA_RENDER_OUTPUT_DIR`, `MEDIA_RENDER_WORKER_MODE`, `MEDIA_RENDER_WORKER_POLL_SECONDS`, `MEDIA_RENDER_CLAIM_LEASE_SECONDS`, `MEDIA_RENDER_WORKER_HEARTBEAT_SECONDS`, `MEDIA_RENDER_WORKER_STALE_AFTER_SECONDS`, `MEDIA_RENDER_ARTIFACT_RETENTION_HOURS`: local/mounted filesystem media configuration.
 - `ALLOW_MOCK_AI_IN_PRODUCTION`: defaults to `false`. Set to `true` only when intentionally deploying without live AI.
 - `ALLOW_SQLITE_IN_PRODUCTION`: defaults to `false`. Set to `true` only for an intentional small SQLite deployment.
 - `STAGING_BACKEND_URL`, `STAGING_FRONTEND_URL`, `STAGING_SMOKE_EMAIL`, `STAGING_SMOKE_SCENARIO`, `STAGING_SMOKE_TIMEOUT_SECONDS`: smoke-check inputs used by `npm run smoke:staging` and `npm run smoke:scenario`. Keep `STAGING_SMOKE_EMAIL` as a dedicated deployed verification mailbox; local deterministic demo accounts intentionally use the separate `@adhyantra.test` domain.
 
-Example `.env` for local real OTP email delivery:
-
-```text
-EMAIL_DELIVERY_MODE=email
-EMAIL_TRANSPORT=smtp
-AUTH_DEV_RETURN_OTP=false
-EMAIL_FROM_ADDRESS=hello@your-domain.example
-SMTP_HOST=smtp.your-provider.example
-SMTP_PORT=587
-SMTP_USERNAME=your_smtp_username
-SMTP_PASSWORD=your_smtp_password
-SMTP_USE_TLS=true
-SMTP_USE_SSL=false
-```
+For local real-email testing, copy `.env.example`, select `EMAIL_DELIVERY_MODE` and `EMAIL_TRANSPORT`, then supply only the corresponding SMTP or Resend fields in the untracked `.env`.
 
 Deployment config validation runs at backend startup when `APP_ENV=staging` or `APP_ENV=production`. The backend now resolves `APP_ENV` through one environment policy layer, so cookies, CORS, email delivery, dev OTP visibility, AI strictness, SQLite strictness, and default log level are controlled in one place. Staging and production fail fast for unsafe deployed defaults such as console email delivery, unsupported real-email transports, localhost CORS origins, or non-HTTPS deployed origins. Production additionally blocks mock AI and local SQLite unless explicitly allowed. Staging emits warnings for mock AI and SQLite so a staging box can boot intentionally while still making production gaps visible.
 
@@ -87,43 +104,21 @@ Internal compatibility note: a few env var names, cookie names, and local databa
 
 If `AI_PROVIDER=gemini` and `AI_PROVIDER_CHAIN` is left empty, the backend uses the default live route `gemini,groq,mock`. If Gemini fails and Groq is configured, the response is generated by Groq and labeled with Groq provider metadata. If all configured live providers are unavailable, the app gracefully falls back to explicit mock mode so local development still works.
 
-Example `.env` for the normal live provider chain:
-
-```text
-AI_PROVIDER=gemini
-AI_PROVIDER_CHAIN=gemini,groq,mock
-GEMINI_API_KEY=your_gemini_key_here
-GROQ_API_KEY=your_groq_key_here
-GEMINI_MODEL=gemini-1.5-flash
-GROQ_MODEL=llama-3.1-8b-instant
-```
-
-Example `.env` for local Mistral QA/testing only:
-
-```text
-APP_ENV=development
-AI_PROVIDER=mistral
-AI_PROVIDER_CHAIN=mistral,mock
-MISTRAL_API_KEY=your_mistral_key_here
-MISTRAL_MODEL=mistral-small-latest
-```
-
-Example `.env` for local mock mode:
-
-```text
-AI_PROVIDER=mock
-AI_PROVIDER_CHAIN=mock
-```
+The normal live provider chain uses the names `AI_PROVIDER`, `AI_PROVIDER_CHAIN`, `GEMINI_API_KEY`, and `GROQ_API_KEY`. Mistral remains local QA/testing-only. Use `.env.example` as the authoritative name/default reference rather than copying credentials from documentation.
 
 ## Backend setup
 
 ```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-pytest backend/tests
-uvicorn backend.main:app --reload
+python -m pytest
+python -m uvicorn backend.main:app --reload
 ```
 
-If you are on Windows PowerShell and `npm` or `pytest` resolves differently on your machine, use `npm.cmd` and `python -m pytest`.
+On macOS/Linux, activate with `source .venv/bin/activate`. The root `requirements.txt` delegates to `backend/requirements.txt`; install from the root so local and deployed setup use the same declaration. `python -m pytest` is the canonical backend-suite command. `pytest.ini` pins discovery to `backend/tests`, disables the repository cache, and keeps pytest temporary files under the ignored `.test-runtime/` directory. The test harness establishes isolated SQLite, mock-AI, console-email, disabled-payment/TTS, and per-process media paths before application modules are imported; it does not consume the developer's `.env` values.
+
+If you are on Windows PowerShell and `npm` resolves differently on your machine, use `npm.cmd`.
 
 Backend endpoints:
 
@@ -145,12 +140,13 @@ Backend endpoints:
 Open a second terminal:
 
 ```powershell
-npm install
+npm ci
+npm run typecheck
 npm run build
 npm run start
 ```
 
-The frontend runs at `http://localhost:3000`.
+Run these commands from the repository root. `npm ci` installs exactly from the tracked workspace lockfile and does not reuse packages from an existing `node_modules`. The frontend runs at `http://localhost:3000`.
 
 If you want hot reload and your environment supports the Next.js dev worker process, you can also run:
 
@@ -158,12 +154,24 @@ If you want hot reload and your environment supports the Next.js dev worker proc
 npm run dev
 ```
 
+## Current product and deployment scope
+
+- Authentication uses expiring email OTP challenges and DB-backed session records. Local console delivery is for development only; SMTP and Resend are the external transports.
+- Premium lesson modes, exports, and media jobs are protected by centralized authentication, entitlement, and usage enforcement. Billing adapters support Stripe and Razorpay, but the default provider is disabled and real checkout requires provider credentials and verified webhooks.
+- Admin APIs are role-gated for content review/import/workflow and operational visibility. They are not a substitute for an external identity or secrets-management platform.
+- Audio jobs can produce TTS files when configured. Video-style jobs produce downloadable ZIP archives containing scene manifests/assets and optional narration audio. They are not MP4 files or cinematic video encoding.
+- UPSC is the primary native corpus. SSC and Banking exam profiles reuse parts of the shared corpus when native exam-specific files are absent.
+- The repository contains provider-neutral staging scripts and a runbook, but no Vercel or Render service definition or verified public deployment metadata. Do not infer that either deployment exists or is healthy from local configuration.
+- Schema management is SQLAlchemy table creation plus SQLite compatibility updates. A managed PostgreSQL deployment still needs provider-native backups and a deliberate schema rollout; no external migration framework is currently installed.
+
 ## Staging deployment checks
 
 - Use `.env.staging.example` as the staging environment contract. Values should be supplied through the staging platform secret manager or process environment, not committed with real secrets.
+- The staging example is intentionally not launchable as copied: preflight fails until `EXAM_GURU_DB_URL` is supplied, and live AI/email/billing credentials are required only for the providers enabled for that deployment.
 - Use `npm run ops:preflight -- --env-file .env.staging` before launch to reuse the current API config, worker config, media storage, and readiness expectations in one place.
-- Staging must use HTTPS `FRONTEND_ORIGIN`, HTTPS `BACKEND_PUBLIC_URL`, explicit `CORS_ALLOWED_ORIGINS`, explicit CORS methods/headers, `TRUSTED_HOSTS` or `BACKEND_PUBLIC_URL` for Host checks, real `EMAIL_DELIVERY_MODE=email`, `EMAIL_TRANSPORT=smtp` with valid SMTP settings, and `SECURE_SESSION_COOKIES=true`.
+- Staging must use HTTPS `FRONTEND_ORIGIN`, HTTPS `BACKEND_PUBLIC_URL`, explicit `CORS_ALLOWED_ORIGINS`, explicit CORS methods/headers, `TRUSTED_HOSTS` or `BACKEND_PUBLIC_URL` for Host checks, real `EMAIL_DELIVERY_MODE=email`, either SMTP or Resend with its required settings, and `SECURE_SESSION_COOKIES=true`.
 - If `MEDIA_RENDER_WORKER_MODE=external`, use an absolute shared `MEDIA_RENDER_OUTPUT_DIR` that both API and worker processes can read and write. A Linux deployment might use a mounted path like `/var/lib/adhyantra/media-renders`; the staging template uses a Windows-safe absolute example so local preflight commands stay readable too.
+- API and worker startup create and verify the configured local or mounted media directory idempotently before accepting render work. Health/readiness checks only inspect storage and never create it. Object-storage URIs such as `s3://...` are not supported by the current filesystem renderer.
 - `GET /health/live` is the lightweight process check. `GET /health/ready` is the deployment gate because it verifies boot state, DB readiness, and config sanity.
 - Readiness responses include a safe `summary` with boot status, DB status, config issue counts, email mode, session/CORS posture, worker expectations, and media pipeline availability. Structured logs use `event=...` fields and redact secret-shaped keys before writing.
 - Full staging launch guidance lives in `docs/staging-runbook.md`.
@@ -333,6 +341,7 @@ Subject discovery is hybrid by design:
 - sends topic plus context to the AI layer using a dedicated provider abstraction
 - returns a deeper teaching response including simple explanation, detailed explanation, examples, common traps, memory hooks, and practice questions
 - still returns an explanation even if no local context is found
+- enforces authentication and premium entitlement checks for premium lesson modes before lesson generation; standard lesson modes retain their existing access policy
 
 `POST /api/tutor/doubt`
 
@@ -367,6 +376,7 @@ This means the prototype is fully usable offline once dependencies are installed
   - above 80% accuracy: `hard`
   - 50% to 80% accuracy: `medium`
   - below 50% accuracy: `easy`
+- One non-weak submitted attempt is treated as thin evidence and stays on the baseline `medium`; at least two reliable attempts are required before a topic can move to `hard`. A single below-50% attempt can still use `easy` because it meets the documented recovery threshold.
 - Recent attempts are also considered so the next quiz reflects how the student is doing now, not only lifetime averages.
 - Weak topics are detected from a mix of:
   - low overall accuracy
@@ -377,6 +387,7 @@ This means the prototype is fully usable offline once dependencies are installed
   - 3 days for medium-stability topics
   - 7 days for stronger topics that still need retention checks
 - The Progress page surfaces weak topics, strong topics, revision recommendations, and the best next topic to study.
+- Legacy lesson-export aliases remain accepted. Export metadata preserves the exact requested alias while `export_target` and response headers expose the canonical format used for entitlement checks, filenames, and media types.
 
 ## Reliability Notes
 
@@ -394,9 +405,9 @@ This means the prototype is fully usable offline once dependencies are installed
 
 ## Validation
 
-These checks passed during the current stabilization pass:
+Canonical checks for the current stabilization pass:
 
-- `pytest backend/tests`
+- `python -m pytest`
 - `npm run build`
 - `npm run typecheck`
 - backend boot with `uvicorn backend.main:app`

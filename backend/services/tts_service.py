@@ -100,7 +100,9 @@ def _job_output_directory(job: MediaRenderJob, settings: Settings) -> Path:
     timestamp = (job.created_at or datetime.now(UTC)).astimezone(UTC).strftime("%Y/%m/%d")
     job_slug = _slug(job.topic, "lesson")
     lesson_mode_slug = _slug(job.lesson_mode or job.render_type, job.render_type)
-    return _output_root(settings) / timestamp / f"job-{job.id}-{job_slug}-{lesson_mode_slug}"
+    output_directory = (_output_root(settings) / timestamp / f"job-{job.id}-{job_slug}-{lesson_mode_slug}").resolve()
+    relative_media_render_storage_path(output_directory, settings)
+    return output_directory
 
 
 def _default_http_client_factory(timeout_seconds: float) -> httpx.Client:
@@ -269,6 +271,7 @@ def render_audio_segments_to_directory(
     http_client_factory: HttpClientFactory | None = None,
 ) -> list[RenderedAudioSegment]:
     active_settings = settings or get_settings()
+    relative_media_render_storage_path(output_directory.resolve(), active_settings)
     active_provider = provider or build_tts_provider(active_settings, http_client_factory=http_client_factory)
     output_directory.mkdir(parents=True, exist_ok=True)
     output_format = active_settings.effective_tts_output_format

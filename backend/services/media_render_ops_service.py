@@ -351,14 +351,7 @@ def build_media_render_pipeline_snapshot(
     if mode == "disabled":
         degraded_reasons.append("worker_mode_disabled")
     if not storage_ready:
-        if storage_exists and not storage_is_directory:
-            degraded_reasons.append("storage_root_not_directory")
-        elif not storage_parent_exists:
-            degraded_reasons.append("storage_parent_missing")
-        elif not storage_parent_is_directory:
-            degraded_reasons.append("storage_parent_not_directory")
-        else:
-            degraded_reasons.append("storage_unavailable")
+        degraded_reasons.append(str(storage_availability.get("reason") or "storage_unavailable"))
     if mode != "disabled" and not worker_ready:
         degraded_reasons.append("worker_unavailable")
     if not shared_storage_recommended:
@@ -384,12 +377,13 @@ def build_media_render_pipeline_snapshot(
         "submission_ready": submission_ready,
         "execution_ready": execution_ready,
         "storage_ready": storage_ready,
-        "storage_root": storage_root.as_posix(),
+        "storage_root": storage_root.as_posix() if storage_root is not None else None,
         "storage_root_exists": storage_exists,
         "storage_root_is_directory": storage_is_directory,
         "storage_parent_exists": storage_parent_exists,
         "storage_parent_is_directory": storage_parent_is_directory,
-        "storage_path_absolute": storage_root.is_absolute(),
+        "storage_path_absolute": bool(storage_root is not None and storage_root.is_absolute()),
+        "storage_backend": storage_availability.get("storage_backend"),
         "project_local_storage": project_local_storage,
         "shared_storage_recommended": shared_storage_recommended,
         "storage_reason": storage_availability["reason"],

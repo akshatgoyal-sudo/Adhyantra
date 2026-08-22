@@ -30,7 +30,11 @@ from backend.services.media_render_service import (
     mark_stale_media_render_jobs_abandoned,
     public_media_render_lifecycle_state,
 )
-from backend.services.media_storage_service import get_media_render_storage_availability
+from backend.services.media_storage_service import (
+    MediaStorageInitializationError,
+    get_media_render_storage_availability,
+    initialize_media_render_storage,
+)
 from backend.services.runtime_process_service import (
     MEDIA_RENDER_WORKER_SERVICE_NAME,
     mark_runtime_process_stopped,
@@ -47,6 +51,13 @@ MEDIA_RENDER_DISPATCH_VERSION = "phase32_media_dispatch_v1"
 DEFAULT_MEDIA_RENDER_DISPATCH_POLL_SECONDS = 0.25
 DEFAULT_MEDIA_RENDER_DISPATCH_STOP_TIMEOUT_SECONDS = 5.0
 SessionFactory = Callable[[], Session]
+
+
+def _initialize_worker_storage_or_log(settings: Settings) -> None:
+    try:
+        initialize_media_render_storage(settings)
+    except MediaStorageInitializationError as exc:
+        logger.error("Media storage initialization failed [%s]: %s", exc.reason, exc)
 
 
 def _utc_now() -> datetime:
@@ -611,6 +622,7 @@ def start_media_render_dispatcher(
     settings: Settings | None = None,
 ) -> MediaRenderDispatcher:
     active_settings = settings or get_settings()
+    initialize_media_render_storage(active_settings)
     active_session_factory = session_factory or getattr(app.state, "testing_session_factory", None) or SessionLocal
     dispatcher = MediaRenderDispatcher(
         active_session_factory,
@@ -648,6 +660,7 @@ def run_media_render_worker_forever(
     claim_lease_seconds: int | None = None,
 ) -> int:
     active_settings = settings or get_settings()
+    _initialize_worker_storage_or_log(active_settings)
     dispatcher = MediaRenderDispatcher(
         session_factory or SessionLocal,
         settings=active_settings,
@@ -675,6 +688,7 @@ def run_media_render_worker_once(
     claim_lease_seconds: int | None = None,
 ) -> bool:
     active_settings = settings or get_settings()
+    _initialize_worker_storage_or_log(active_settings)
     dispatcher = MediaRenderDispatcher(
         session_factory or SessionLocal,
         settings=active_settings,

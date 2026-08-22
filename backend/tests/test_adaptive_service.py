@@ -17,6 +17,7 @@ sys.path.insert(0, str(BACKEND_ROOT / ".deps"))
 from backend.db import Base
 from backend.models import Quiz, QuizAttempt, TopicProgress, TopicStudy
 from backend.services.adaptive_service import (
+    MIN_DIFFICULTY_EVIDENCE_ATTEMPTS,
     build_explanation_depth_profile,
     build_subject_difficulty_profile,
     build_topic_difficulty_profile,
@@ -44,6 +45,106 @@ def test_determine_difficulty_follows_adaptive_rules() -> None:
     assert determine_difficulty(72.0) == "medium"
     assert determine_difficulty(41.0) == "easy"
     assert determine_difficulty(88.0, recent_accuracies=[42.0, 45.0, 47.0]) == "hard"
+
+
+@pytest.mark.parametrize(
+    ("profile_overrides", "expected_difficulty", "expected_state"),
+    [
+        ({"accuracy": None, "recent_accuracy": 0.0, "attempts_count": 0}, "medium", "steady"),
+        (
+            {
+                "accuracy": 100.0,
+                "recent_accuracy": 100.0,
+                "attempts_count": 1,
+                "mastery_score": 92.0,
+                "topic_strength": "strong",
+            },
+            "medium",
+            "steady",
+        ),
+        (
+            {
+                "accuracy": 40.0,
+                "recent_accuracy": 40.0,
+                "attempts_count": 1,
+                "mastery_score": 35.0,
+                "topic_strength": "weak",
+                "revision_signal": "at_risk",
+                "retention_risk": "high",
+            },
+            "easy",
+            "recovery",
+        ),
+        (
+            {
+                "accuracy": 95.0,
+                "recent_accuracy": 95.0,
+                "attempts_count": MIN_DIFFICULTY_EVIDENCE_ATTEMPTS,
+                "mastery_score": 90.0,
+                "confidence_score": 50.0,
+                "stability_score": 75.0,
+                "topic_strength": "strong",
+                "revision_readiness": "ready",
+            },
+            "hard",
+            "challenge",
+        ),
+        (
+            {
+                "accuracy": 30.0,
+                "recent_accuracy": 25.0,
+                "attempts_count": 3,
+                "mastery_score": 28.0,
+                "topic_strength": "weak",
+                "recent_failed_attempts": 2,
+                "repeated_mistakes": 2,
+            },
+            "easy",
+            "recovery",
+        ),
+        (
+            {
+                "accuracy": 65.0,
+                "recent_accuracy": 60.0,
+                "attempts_count": 3,
+                "mastery_score": 62.0,
+                "confidence_score": 40.0,
+                "stability_score": 60.0,
+                "revision_signal": "due_soon",
+                "retention_risk": "moderate",
+            },
+            "medium",
+            "steady",
+        ),
+    ],
+)
+def test_topic_difficulty_boundaries_require_reliable_evidence(
+    profile_overrides: dict,
+    expected_difficulty: str,
+    expected_state: str,
+) -> None:
+    profile_args = {
+        "topic": "Preamble",
+        "accuracy": 70.0,
+        "recent_accuracy": 70.0,
+        "attempts_count": 2,
+        "mastery_score": 65.0,
+        "confidence_score": 40.0,
+        "stability_score": 60.0,
+        "topic_strength": "medium",
+        "revision_readiness": "building",
+        "revision_signal": "stable",
+        "retention_risk": "low",
+        "long_term_trend": "stable",
+        "recent_failed_attempts": 0,
+        "repeated_mistakes": 0,
+    }
+    profile_args.update(profile_overrides)
+
+    profile = build_topic_difficulty_profile(**profile_args)
+
+    assert profile["difficulty_band"] == expected_difficulty
+    assert profile["adaptive_state"] == expected_state
 
 
 def test_weak_topic_detection_uses_multiple_signals() -> None:
@@ -331,6 +432,45 @@ def test_generate_quiz_keeps_medium_difficulty_for_thin_but_strong_topic_history
 
         assert quiz["difficulty"] == "medium"
         assert quiz["adaptive_state"] == "steady"
+    finally:
+        db.close()
+
+
+def test_generate_quiz_starts_at_medium_without_history() -> None:
+    db = build_test_session()
+    try:
+        quiz = generate_quiz(db=db, topic="Federalism", question_count=5)
+
+        assert quiz["difficulty"] == "medium"
+        assert quiz["adaptive_state"] == "steady"
+    finally:
+        db.close()
+
+
+def test_generate_quiz_uses_hard_only_after_repeated_strong_history() -> None:
+    db = build_test_session()
+    try:
+        for _ in range(3):
+            create_attempt(db, topic="Fundamental Rights", score=5, total_questions=5)
+
+        quiz = generate_quiz(db=db, topic="Fundamental Rights", question_count=5, quiz_mode="test")
+
+        assert quiz["difficulty"] == "hard"
+        assert quiz["adaptive_state"] == "challenge"
+    finally:
+        db.close()
+
+
+def test_generate_quiz_keeps_easy_for_repeated_weak_history() -> None:
+    db = build_test_session()
+    try:
+        for _ in range(2):
+            create_attempt(db, topic="Directive Principles", score=1, total_questions=5)
+
+        quiz = generate_quiz(db=db, topic="Directive Principles", question_count=5)
+
+        assert quiz["difficulty"] == "easy"
+        assert quiz["adaptive_state"] == "recovery"
     finally:
         db.close()
 

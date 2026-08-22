@@ -284,7 +284,7 @@ def explain_topic_route(payload: ExplainRequest, request: Request, db: Session =
         user=user,
         action_name="tutor.explain",
         lesson_mode=payload.lesson_mode,
-    ) if user is not None else {}
+    )
     resolved_preferences = resolve_authenticated_study_preferences(
         auth_context,
         subject=payload.subject,
@@ -345,7 +345,7 @@ def _lesson_export_download_response(payload: LessonExportRequest, request: Requ
         action_name="lesson.export",
         lesson_mode=payload.lesson_mode,
         export_format=payload.export_format,
-    ) if user is not None else {}
+    )
     resolved_preferences = resolve_authenticated_study_preferences(
         auth_context,
         subject=payload.subject,

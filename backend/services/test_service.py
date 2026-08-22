@@ -19,7 +19,11 @@ from backend.config import (
     resolve_exam_content_subject,
 )
 from backend.models import Quiz, QuizAttempt
-from backend.services.adaptive_service import build_post_quiz_guidance, build_topic_difficulty_profile
+from backend.services.adaptive_service import (
+    MIN_DIFFICULTY_EVIDENCE_ATTEMPTS,
+    build_post_quiz_guidance,
+    build_topic_difficulty_profile,
+)
 from backend.services.ai_service import AIService
 from backend.services.coach_service import (
     build_coach_summary,
@@ -412,7 +416,7 @@ def _resolve_effective_quiz_adaptation(
     revision_signal = str(topic_accuracy_item.get("revision_signal") or "stable") if topic_accuracy_item else "stable"
     retention_risk = str(topic_accuracy_item.get("retention_risk") or "low") if topic_accuracy_item else "low"
 
-    thin_history = attempts_count <= 1
+    thin_history = attempts_count < MIN_DIFFICULTY_EVIDENCE_ATTEMPTS
     topic_recovery = (
         topic_state == "recovery"
         or revision_signal in {"at_risk", "due_now"}
@@ -445,6 +449,16 @@ def _resolve_effective_quiz_adaptation(
                 f"{target_topic} stays on easy because weak-area drill is for recovery and correction work first.",
                 topic_reason,
                 subject_reason if subject_recovery else "",
+            ),
+        }
+
+    if thin_history and normalized_accuracy is not None and normalized_accuracy >= 50:
+        return {
+            "difficulty": "medium",
+            "adaptive_state": "steady",
+            "difficulty_reason": _join_unique_sentences(
+                f"{target_topic} stays on medium because one non-weak attempt is not enough evidence to change the baseline difficulty.",
+                topic_reason,
             ),
         }
 

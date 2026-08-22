@@ -779,7 +779,7 @@ def build_lesson_export_asset(lesson: dict[str, Any], export_format: str | None)
     if export_target == "json_export":
         content = json.dumps(_model_payload(_json_export(lesson, metadata)), indent=2, ensure_ascii=False, default=str)
     elif export_target == "audio_script_export":
-        content = json.dumps(_model_payload(build_audio_script_export_payload(lesson)), indent=2, ensure_ascii=False, default=str)
+        content = json.dumps(_model_payload(_audio_script_export(lesson, metadata)), indent=2, ensure_ascii=False, default=str)
     elif export_target == "slide_outline_export":
         content = _slide_outline_export(lesson, metadata)
     elif export_target == "text_export":

@@ -26,6 +26,7 @@ from backend.routes.tutor_routes import router as tutor_router
 from backend.services.media_render_dispatch_service import start_media_render_dispatcher, stop_media_render_dispatcher
 from backend.services.media_render_ops_service import build_media_render_pipeline_snapshot, build_media_render_worker_snapshot
 from backend.services.media_render_service import recover_stale_queued_media_render_jobs
+from backend.services.media_storage_service import initialize_media_render_storage
 from backend.services.ops_logging import log_event, request_log_context, stable_hash
 
 
@@ -139,9 +140,12 @@ def _public_pipeline_degraded_reasons(pipeline_snapshot: dict[str, object]) -> l
         normalized = str(reason or "").strip().lower()
         if normalized in {
             "storage_root_not_directory",
+            "storage_root_missing",
+            "storage_root_unwritable",
             "storage_parent_missing",
             "storage_parent_not_directory",
             "storage_unavailable",
+            "unsupported_storage_backend",
         }:
             public_reason = "storage_unavailable"
         elif normalized == "storage_path_project_local_for_external_worker":
@@ -369,6 +373,8 @@ async def lifespan(fastapi_app: FastAPI):
             warning_count=len(validation.warnings),
         )
         init_db()
+        if settings.effective_media_render_worker_mode != "disabled":
+            initialize_media_render_storage(settings)
         with managed_db_session(SessionLocal) as recovery_db:
             recovered_startup_jobs = recover_stale_queued_media_render_jobs(
                 recovery_db,

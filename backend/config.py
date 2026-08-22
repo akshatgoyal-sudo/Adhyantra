@@ -1899,32 +1899,44 @@ class Settings:
                 "unknown_tts_provider",
                 f"TTS_PROVIDER '{self.tts_provider}' is not recognized; rendering will stay disabled until a supported provider is configured.",
             )
-        if "onedrive" in self.effective_media_render_output_dir.as_posix().lower():
-            add_issue(
-                "warning",
-                "tts",
-                "onedrive_media_render_output_dir",
-                "MEDIA_RENDER_OUTPUT_DIR is under OneDrive, which is fragile for generated media assets in local development.",
-            )
         raw_media_render_output_dir = str(self.media_render_output_dir or "").strip()
-        if policy.deployed and raw_media_render_output_dir and not Path(raw_media_render_output_dir).is_absolute():
+        media_storage_uri_match = re.match(r"^(?P<scheme>[a-z][a-z0-9+.-]*)://", raw_media_render_output_dir, re.IGNORECASE)
+        if media_storage_uri_match:
             add_issue(
-                "warning",
-                "deployment",
-                "relative_media_render_output_dir_in_deployed",
-                "Set MEDIA_RENDER_OUTPUT_DIR to an absolute shared path in deployed environments so API and worker processes resolve artifacts consistently.",
+                "error",
+                "tts",
+                "unsupported_media_storage_backend",
+                (
+                    f"MEDIA_RENDER_OUTPUT_DIR uses the unsupported '{media_storage_uri_match.group('scheme').lower()}' URI scheme. "
+                    "Use a local path or mounted shared filesystem path."
+                ),
             )
-        try:
-            output_dir_under_project = self.effective_media_render_output_dir.relative_to(PROJECT_ROOT)
-        except ValueError:
-            output_dir_under_project = None
-        if policy.deployed and self.external_media_render_worker_expected and output_dir_under_project is not None:
-            add_issue(
-                "warning",
-                "deployment",
-                "project_local_media_render_output_dir_for_external_worker",
-                "External worker deployments are safer with MEDIA_RENDER_OUTPUT_DIR pointing at a shared mounted path instead of a project-local directory.",
-            )
+        else:
+            if "onedrive" in self.effective_media_render_output_dir.as_posix().lower():
+                add_issue(
+                    "warning",
+                    "tts",
+                    "onedrive_media_render_output_dir",
+                    "MEDIA_RENDER_OUTPUT_DIR is under OneDrive, which is fragile for generated media assets in local development.",
+                )
+            if policy.deployed and raw_media_render_output_dir and not Path(raw_media_render_output_dir).is_absolute():
+                add_issue(
+                    "warning",
+                    "deployment",
+                    "relative_media_render_output_dir_in_deployed",
+                    "Set MEDIA_RENDER_OUTPUT_DIR to an absolute shared path in deployed environments so API and worker processes resolve artifacts consistently.",
+                )
+            try:
+                output_dir_under_project = self.effective_media_render_output_dir.relative_to(PROJECT_ROOT)
+            except ValueError:
+                output_dir_under_project = None
+            if policy.deployed and self.external_media_render_worker_expected and output_dir_under_project is not None:
+                add_issue(
+                    "warning",
+                    "deployment",
+                    "project_local_media_render_output_dir_for_external_worker",
+                    "External worker deployments are safer with MEDIA_RENDER_OUTPUT_DIR pointing at a shared mounted path instead of a project-local directory.",
+                )
         if self.effective_tts_provider == "openai":
             if not str(self.tts_openai_model or "").strip():
                 add_issue("warning", "tts", "missing_tts_openai_model", "TTS_OPENAI_MODEL is missing; OpenAI TTS rendering will be unavailable.")

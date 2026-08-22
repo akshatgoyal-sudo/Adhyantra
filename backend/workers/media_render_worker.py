@@ -10,6 +10,7 @@ from typing import Sequence
 from backend.config import get_settings
 from backend.db import init_db
 from backend.services.media_render_dispatch_service import run_media_render_worker_forever, run_media_render_worker_once
+from backend.services.media_storage_service import MediaStorageInitializationError, initialize_media_render_storage
 
 
 logger = logging.getLogger(__name__)
@@ -91,30 +92,44 @@ def main(argv: Sequence[str] | None = None) -> int:
     for issue in validation.warnings:
         logger.warning("Worker configuration warning [%s.%s]: %s", issue.category, issue.code, issue.message)
 
+    try:
+        initialize_media_render_storage(settings)
+    except MediaStorageInitializationError as exc:
+        logger.error("Media storage initialization failed [%s]: %s", exc.reason, exc)
+        return 3
+
     if not args.skip_db_init:
         init_db()
 
     stop_event = threading.Event()
     _install_signal_handlers(stop_event)
 
-    if args.run_once:
-        processed_jobs = int(
-            run_media_render_worker_once(
+    try:
+        if args.run_once:
+            processed_jobs = int(
+                run_media_render_worker_once(
+                    settings=settings,
+                    worker_id=str(args.worker_id or "").strip() or None,
+                    poll_interval_seconds=args.poll_interval_seconds,
+                    claim_lease_seconds=args.claim_lease_seconds,
+                )
+            )
+        else:
+            processed_jobs = run_media_render_worker_forever(
                 settings=settings,
                 worker_id=str(args.worker_id or "").strip() or None,
+                stop_event=stop_event,
+                max_jobs=args.max_jobs,
                 poll_interval_seconds=args.poll_interval_seconds,
                 claim_lease_seconds=args.claim_lease_seconds,
             )
+    except MediaStorageInitializationError as exc:
+        logger.error(
+            "Media storage initialization failed [%s]: %s",
+            exc.reason,
+            exc,
         )
-    else:
-        processed_jobs = run_media_render_worker_forever(
-            settings=settings,
-            worker_id=str(args.worker_id or "").strip() or None,
-            stop_event=stop_event,
-            max_jobs=args.max_jobs,
-            poll_interval_seconds=args.poll_interval_seconds,
-            claim_lease_seconds=args.claim_lease_seconds,
-        )
+        return 3
     logger.info(
         "Media render worker exited cleanly after processing %s job(s).",
         processed_jobs,

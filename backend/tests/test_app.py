@@ -3,7 +3,6 @@ from __future__ import annotations
 from io import BytesIO
 import json
 import logging
-import os
 from pathlib import Path
 import re
 import sys
@@ -24,13 +23,6 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_ROOT.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(BACKEND_ROOT / ".deps"))
-
-os.environ["AI_PROVIDER"] = "mock"
-os.environ["AI_PROVIDER_CHAIN"] = ""
-os.environ["OPENAI_API_KEY"] = ""
-os.environ["OPENAI_MODEL"] = "gpt-4o-mini"
-os.environ["EMAIL_DELIVERY_MODE"] = "console"
-os.environ["AUTH_DEV_RETURN_OTP"] = "true"
 
 from backend.config import Settings, get_active_sqlite_db_path, get_demo_seed_marker_path, get_settings
 from backend.db import Base, get_db
@@ -1436,7 +1428,7 @@ def test_phase35_subscription_updated_canceling_state_keeps_premium_entitlements
         display_name="Phase 35 Webhook Canceling",
     )
     user_id = auth["user"]["id"]
-    event_created_at = datetime(2026, 5, 15, 16, 0, 0, tzinfo=UTC)
+    event_created_at = datetime.now(UTC).replace(microsecond=0)
     future_period_end = event_created_at + timedelta(days=14)
     payload = {
         "id": "evt_phase35_subscription_updated_canceling",
@@ -1732,7 +1724,7 @@ def test_phase37_razorpay_subscription_authenticated_state_stays_pending_without
         display_name="Phase 37 Razorpay Authenticated",
     )
     user_id = auth["user"]["id"]
-    event_created_at = datetime(2026, 5, 17, 10, 30, 0, tzinfo=UTC)
+    event_created_at = datetime.now(UTC).replace(microsecond=0)
     activation_at = event_created_at + timedelta(days=5)
     event_payload = {
         "entity": "event",
@@ -2073,7 +2065,7 @@ def test_phase37_razorpay_subscription_updated_canceling_state_keeps_premium_ent
         display_name="Phase 37 Razorpay Canceling",
     )
     user_id = auth["user"]["id"]
-    event_created_at = datetime(2026, 5, 17, 13, 0, 0, tzinfo=UTC)
+    event_created_at = datetime.now(UTC).replace(microsecond=0)
     future_period_end = event_created_at + timedelta(days=14)
     payload = {
         "entity": "event",
@@ -2551,11 +2543,20 @@ def test_seed_demo_accounts_refreshes_known_state_without_duplicating_history(cl
         db.close()
 
 
-def test_seed_demo_accounts_can_apply_named_learning_scenarios(client: TestClient) -> None:
+def test_seed_demo_accounts_can_apply_named_learning_scenarios(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services import adaptive_service, coach_service, progress_service
+
     session_factory = client.app.state.testing_session_factory
     db = session_factory()
     try:
-        anchor = default_demo_seed_anchor(datetime.now(UTC))
+        anchor = datetime(2026, 4, 20, 9, 0, 0, tzinfo=UTC)
+        evaluation_time = anchor + timedelta(hours=12)
+        monkeypatch.setattr(adaptive_service, "utc_now", lambda: evaluation_time)
+        monkeypatch.setattr(coach_service, "utc_now", lambda: evaluation_time)
+        monkeypatch.setattr(progress_service, "utc_now", lambda: evaluation_time)
         scenarios = {
             "fresh_start": {
                 "account_key": "fresh_user",
@@ -3070,7 +3071,9 @@ def test_health(client: TestClient) -> None:
     assert body["security"]["config_validation"]["ok"] is True
     assert body["security"]["dev_otp_return_enabled"] is True
     assert body["database_type"] == "sqlite"
-    assert body["db_path"].endswith("exam_guru.db")
+    active_db_path = get_active_sqlite_db_path()
+    assert active_db_path is not None
+    assert Path(body["db_path"]).resolve() == active_db_path.resolve()
     assert isinstance(body["demo_seeded"], bool)
     assert body["debug_runtime_context"] is None
     assert "demo" in body["data_note"].lower()
@@ -3415,6 +3418,8 @@ def test_readiness_requires_embedded_worker_in_deployed_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    from backend.services.media_storage_service import initialize_media_render_storage
+
     deployed_settings = Settings(
         app_env="production",
         ai_provider="openai",
@@ -3435,6 +3440,7 @@ def test_readiness_requires_embedded_worker_in_deployed_mode(
         media_render_output_dir=str(tmp_path / "embedded-render-output"),
         allow_sqlite_in_production=True,
     )
+    initialize_media_render_storage(deployed_settings)
     monkeypatch.setattr(main_module, "settings", deployed_settings)
     monkeypatch.setattr(
         main_module,
@@ -8357,7 +8363,8 @@ def test_user_scoped_quiz_history_and_progress_do_not_leak_between_users(client:
     finally:
         db.close()
 
-    with TestClient(app) as second_client:
+    second_client = TestClient(app)
+    try:
         authenticate_test_user(second_client, email="learner.two@example.com", display_name="Learner Two")
 
         second_history_response = second_client.get("/api/progress/history?subject=polity")
@@ -8369,6 +8376,8 @@ def test_user_scoped_quiz_history_and_progress_do_not_leak_between_users(client:
         second_summary_body = second_summary_response.json()
         assert second_summary_body["recent_quizzes"] == []
         assert second_summary_body["topic_accuracy"] == []
+    finally:
+        second_client.close()
 
     history_again_response = client.get("/api/progress/history?subject=polity")
     assert history_again_response.status_code == 200
@@ -8384,13 +8393,16 @@ def test_user_scoped_tutor_study_activity_stays_separate_per_user(client: TestCl
     )
     assert explain_response.status_code == 200
 
-    with TestClient(app) as second_client:
+    second_client = TestClient(app)
+    try:
         authenticate_test_user(second_client, email="tutor.two@example.com", display_name="Tutor Two")
         second_explain_response = second_client.post(
             "/api/tutor/explain",
             json={"topic": "Fundamental Rights", "subject": "polity"},
         )
         assert second_explain_response.status_code == 200
+    finally:
+        second_client.close()
 
     session_factory = client.app.state.testing_session_factory
     db = session_factory()
@@ -14513,6 +14525,46 @@ def test_phase24_lesson_export_route_accepts_legacy_format_aliases(
         body = response.json()
         assert body["metadata"]["export_target"] == canonical_format
         assert body["metadata"]["requested_format"] == legacy_format
+        assert body["metadata"]["filename"] == response.headers["x-adhyantra-export-filename"]
+
+    if legacy_format == "tts_package":
+        assert response.headers["content-type"].startswith("application/json")
+        assert response.headers["x-adhyantra-export-filename"].endswith(".audio-script.json")
+
+        download_response = client.post(
+            "/api/tutor/export/lesson/download",
+            json={
+                "topic": "Preamble",
+                "subject": "polity",
+                "exam": "upsc",
+                "lesson_mode": "video_lecture",
+                "export_format": legacy_format,
+            },
+        )
+        assert download_response.status_code == 200
+        assert download_response.headers["x-adhyantra-export-format"] == canonical_format
+        assert download_response.headers["content-type"].startswith("application/json")
+        assert download_response.json()["metadata"]["requested_format"] == legacy_format
+
+
+def test_legacy_tts_package_alias_uses_canonical_premium_entitlement(client: TestClient) -> None:
+    authenticate_test_user(client, email="phase24-free-tts-package@example.com")
+
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": "Preamble",
+            "subject": "polity",
+            "exam": "upsc",
+            "lesson_mode": "mini_lesson",
+            "export_format": "tts_package",
+        },
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["feature_key"] == "lesson_exports"
+    assert detail["required_plan"] == "premium"
 
 
 def test_phase24_lesson_export_download_route_uses_shared_contract(client: TestClient) -> None:
@@ -14584,6 +14636,114 @@ def test_phase25_anonymous_user_gets_sign_in_required_for_premium_video_lesson_m
     assert detail["feature_key"] == "premium_lesson_modes"
     assert detail["sign_in_required"] is True
     assert detail["upgrade_required"] is False
+
+
+@pytest.mark.parametrize("account_kind", ["anonymous", "free"])
+@pytest.mark.parametrize(
+    ("endpoint", "payload", "expected_feature"),
+    [
+        (
+            "/api/tutor/explain",
+            {"topic": "Preamble", "subject": "polity", "exam": "upsc", "lesson_mode": "video_lecture"},
+            "premium_lesson_modes",
+        ),
+        (
+            "/api/tutor/export/lesson",
+            {
+                "topic": "Preamble",
+                "subject": "polity",
+                "exam": "upsc",
+                "lesson_mode": "revision_video",
+                "export_format": "markdown_export",
+            },
+            "premium_lesson_modes",
+        ),
+        (
+            "/api/tutor/export/lesson/download",
+            {
+                "topic": "Preamble",
+                "subject": "polity",
+                "exam": "upsc",
+                "lesson_mode": "crash_course_video",
+                "export_format": "text_export",
+            },
+            "premium_lesson_modes",
+        ),
+        (
+            "/api/tutor/export/lesson",
+            {
+                "topic": "Preamble",
+                "subject": "polity",
+                "exam": "upsc",
+                "lesson_mode": "mini_lesson",
+                "export_format": "json_export",
+            },
+            "lesson_exports",
+        ),
+        (
+            "/api/tutor/render/audio",
+            {"topic": "Preamble", "subject": "polity", "exam": "upsc", "lesson_mode": "video_lecture"},
+            "premium_lesson_modes",
+        ),
+        (
+            "/api/tutor/render/video",
+            {
+                "topic": "Preamble",
+                "subject": "polity",
+                "exam": "upsc",
+                "lesson_mode": "video_lecture",
+                "render_type": "slide_video",
+            },
+            "premium_lesson_modes",
+        ),
+    ],
+)
+def test_premium_tutor_access_is_rejected_before_generation_export_or_job_creation(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    account_kind: str,
+    endpoint: str,
+    payload: dict[str, str],
+    expected_feature: str,
+) -> None:
+    from backend.routes import tutor_routes
+
+    if account_kind == "free":
+        authenticate_test_user(
+            client,
+            email=f"security-free-{endpoint.strip('/').replace('/', '-')}-{expected_feature}@example.com",
+        )
+
+    def fail_expensive_work(*args, **kwargs):
+        raise AssertionError("Rejected premium access reached expensive tutor work.")
+
+    monkeypatch.setattr(tutor_routes, "explain_topic", fail_expensive_work)
+    monkeypatch.setattr(tutor_routes, "build_lesson_export_asset", fail_expensive_work)
+    monkeypatch.setattr(tutor_routes, "create_media_render_job", fail_expensive_work)
+
+    response = client.post(endpoint, json=payload)
+
+    assert response.status_code == (401 if account_kind == "anonymous" else 403)
+    detail = response.json()["detail"]
+    if isinstance(detail, dict):
+        assert detail["feature_key"] == expected_feature
+        assert detail["sign_in_required"] is (account_kind == "anonymous")
+        assert detail["upgrade_required"] is (account_kind == "free")
+    else:
+        assert account_kind == "anonymous"
+        assert detail == "Sign in is required for rendered media."
+
+    session_factory = client.app.state.testing_session_factory
+    db = session_factory()
+    try:
+        assert db.query(MediaRenderJob).count() == 0
+        assert db.query(UsageConsumptionRecord).count() == 0
+        assert db.query(TopicStudy).count() == 0
+        assert db.query(AnalyticsEvent).filter(
+            AnalyticsEvent.event_name.in_({"tutor.explained", "lesson.exported"})
+        ).count() == 0
+    finally:
+        db.close()
 
 
 @pytest.mark.parametrize("lesson_mode", ["video_lecture", "revision_video", "crash_course_video"])
@@ -16044,6 +16204,71 @@ def test_phase34_worker_defers_claimable_jobs_when_storage_is_temporarily_unavai
         assert serialized_deferred["lifecycle_state"] == "queued"
         assert serialized_deferred["failure_code"] is None
         assert serialized_deferred["failure_message"] is None
+    finally:
+        db.close()
+
+
+def test_media_worker_executes_slide_render_from_completely_missing_storage_root(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services import video_render_service
+
+    authenticate_premium_test_user(
+        client,
+        email="clean-checkout-media@example.com",
+        display_name="Clean Checkout Media",
+    )
+    storage_root = tmp_path / "clean-source" / "generated_media" / "renders"
+    settings = Settings(
+        tts_provider="disabled",
+        media_render_worker_mode="embedded",
+        media_render_output_dir=str(storage_root),
+    )
+    monkeypatch.setattr(video_render_service, "get_settings", lambda: settings)
+    assert storage_root.exists() is False
+
+    create_response = client.post(
+        "/api/tutor/render/video",
+        json={
+            "topic": "Preamble",
+            "subject": "polity",
+            "exam": "upsc",
+            "lesson_mode": "video_lecture",
+            "render_type": "slide_video",
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["id"]
+
+    processed = run_media_render_worker_once(
+        client.app.state.testing_session_factory,
+        settings=settings,
+        worker_id="clean-checkout-worker",
+    )
+
+    assert processed is True
+    assert storage_root.is_dir()
+    session_factory = client.app.state.testing_session_factory
+    db = session_factory()
+    try:
+        job = db.query(MediaRenderJob).filter(MediaRenderJob.id == job_id).first()
+        assert job is not None
+        assert job.lifecycle_state == "succeeded"
+        assert job.output_content_type == "application/zip"
+        output_metadata = json.loads(job.output_metadata_json)
+        assert output_metadata["render_style"] == "scene_slide_package"
+        assert output_metadata["cinematic_video"] is False
+        archive_path = resolve_media_render_asset_path(job, settings=settings)
+        assert archive_path is not None, {
+            "stored_path": job.output_asset_path,
+            "storage_root": storage_root.as_posix(),
+            "written_files": [path.as_posix() for path in storage_root.rglob("*") if path.is_file()],
+        }
+        assert archive_path.is_file()
+        assert archive_path.suffix == ".zip"
+        assert archive_path.resolve().is_relative_to(storage_root.resolve())
     finally:
         db.close()
 

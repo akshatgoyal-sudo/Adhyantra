@@ -9,6 +9,7 @@ from backend.models import QuizAttempt
 
 
 REVISION_INTERVALS = (1, 3, 7)
+MIN_DIFFICULTY_EVIDENCE_ATTEMPTS = 2
 
 
 def utc_now() -> datetime:
@@ -82,7 +83,7 @@ def build_topic_difficulty_profile(
     repeated_mistakes: int = 0,
 ) -> dict[str, Any]:
     topic_label = (topic or "This topic").strip() or "This topic"
-    thin_history = attempts_count <= 1
+    thin_history = attempts_count < MIN_DIFFICULTY_EVIDENCE_ATTEMPTS
     if accuracy is None and attempts_count <= 0:
         return {
             "difficulty_band": "medium",
@@ -95,6 +96,16 @@ def build_topic_difficulty_profile(
     normalized_mastery = float(mastery_score or 0.0)
     normalized_confidence = float(confidence_score or 0.0)
     normalized_stability = float(stability_score or 0.0)
+
+    if thin_history and normalized_accuracy >= 50:
+        return {
+            "difficulty_band": "medium",
+            "adaptive_state": "steady",
+            "reason": (
+                f"{topic_label} stays on medium because one non-weak attempt is not enough "
+                "evidence to change the baseline difficulty."
+            ),
+        }
 
     recovery_pressure = 0
     challenge_pressure = 0

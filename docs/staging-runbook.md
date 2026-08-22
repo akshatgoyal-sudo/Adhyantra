@@ -10,7 +10,9 @@ Create a real staging env file or secret set from the template:
 Copy-Item .env.staging.example .env.staging
 ```
 
-Fill real values for database, OpenAI, SMTP, public URLs, CORS, and trusted hosts. Do not commit `.env.staging`.
+The example is a contract, not a deployable configuration. Its blank `EXAM_GURU_DB_URL` deliberately fails preflight until a staging database is selected; provider secrets must remain in the platform secret store or untracked staging file.
+
+Fill real values for the database, selected AI providers, one supported email transport, public URLs, CORS, and trusted hosts. Do not commit `.env.staging`.
 
 Minimum staging expectations:
 
@@ -18,11 +20,14 @@ Minimum staging expectations:
 - HTTPS `FRONTEND_ORIGIN` and `BACKEND_PUBLIC_URL`
 - explicit `CORS_ALLOWED_ORIGINS`
 - `TRUSTED_HOSTS` containing the backend public host
-- `EMAIL_DELIVERY_MODE=email` and `EMAIL_TRANSPORT=smtp`
+- `EMAIL_DELIVERY_MODE=email` and either `EMAIL_TRANSPORT=smtp` or `EMAIL_TRANSPORT=resend`
+- SMTP requires the documented `SMTP_*` settings; Resend requires `RESEND_API_KEY`
 - `SECURE_SESSION_COOKIES=true`
 - `AUTH_DEV_RETURN_OTP=false`
 
 If the backend is reached directly during a dry run, include that direct host in `TRUSTED_HOSTS`. For real staging, route traffic through HTTPS/reverse proxy.
+
+This runbook is platform-neutral. The repository does not contain Vercel or Render service configuration, and following these steps does not establish that either platform is currently deployed or healthy.
 
 ## 2. Deployment Preflight
 
