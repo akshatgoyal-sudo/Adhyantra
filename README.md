@@ -162,7 +162,7 @@ npm run dev
 - Audio jobs can produce TTS files when configured. Video-style jobs produce downloadable ZIP archives containing scene manifests/assets and optional narration audio. They are not MP4 files or cinematic video encoding.
 - UPSC is the primary native corpus. SSC and Banking exam profiles reuse parts of the shared corpus when native exam-specific files are absent.
 - The repository contains provider-neutral staging scripts and a runbook, but no Vercel or Render service definition or verified public deployment metadata. Do not infer that either deployment exists or is healthy from local configuration.
-- Schema management is SQLAlchemy table creation plus SQLite compatibility updates. A managed PostgreSQL deployment still needs provider-native backups and a deliberate schema rollout; no external migration framework is currently installed.
+- Alembic provides a reviewed PostgreSQL migration baseline while current API and worker startup still use SQLAlchemy table creation plus SQLite compatibility updates. Managed PostgreSQL rollout remains a separate, backup-first operation; see `docs/migrations.md`.
 
 ## Staging deployment checks
 
@@ -256,10 +256,10 @@ npm run smoke:scenario -- --backend-url http://127.0.0.1:8000 --frontend-url htt
 - The only intended local SQLite database path is the project-root file `./exam_guru.db`.
 - `backend/exam_guru.db` is a legacy path and should not be used for normal local runs.
 - Markdown knowledge-base files are seeded content. Quiz history, progress, revision signals, and coach outputs are not auto-seeded.
-- The current schema strategy is lightweight: SQLAlchemy creates missing tables and the backend applies compatibility updates for older SQLite development databases. No external migration framework is installed yet.
+- PostgreSQL now has a reviewed Alembic model/schema baseline. The current runtime still creates missing tables and applies compatibility updates to older SQLite development databases; changing startup schema behavior is intentionally deferred.
 - `db:reset` and demo seeding are intentionally local-only and are blocked when `APP_ENV=staging` or `APP_ENV=production`.
 - Local reset creates a timestamped SQLite backup first unless `--skip-backup` is passed.
-- For managed staging/production databases, use provider-native backups and run `db:preflight` / `db:apply-schema`; do not use local reset or demo seed tooling.
+- For managed staging/production databases, use provider-native backups and follow `docs/migrations.md`. Do not stamp or migrate an existing database until its schema compatibility is independently verified, and do not use local reset or demo seed tooling.
 - Use the safer wrapper workflow for local hygiene:
   - inspect current lane: `python scripts/demo_runtime_state.py status`
   - reset to a clean local lane: `python scripts/demo_runtime_state.py reset --yes`

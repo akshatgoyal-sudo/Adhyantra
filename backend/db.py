@@ -5,16 +5,17 @@ import logging
 from typing import Callable, Generator, Iterator
 
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.config import LEGACY_BACKEND_DB_FILE_PATH, get_active_sqlite_db_path, get_settings
+from backend.model_base import Base
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 DB_SCHEMA_MANAGEMENT = {
     "strategy": "sqlalchemy_create_all_plus_sqlite_compatibility_updates",
-    "migration_framework": "none",
+    "migration_framework": "alembic_baseline_available",
     "sqlite_compatibility_updates": True,
     "destructive_auto_migrations": False,
 }
@@ -25,7 +26,6 @@ engine = create_engine(
     pool_pre_ping=not settings.db_url.startswith("sqlite"),
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 
 @contextmanager

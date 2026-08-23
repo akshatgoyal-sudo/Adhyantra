@@ -65,7 +65,8 @@ Inspect DB readiness before launching:
 npm run db:preflight -- --env-file .env.staging
 ```
 
-Apply the current lightweight schema path:
+The legacy runtime schema command still uses the current `create_all()` path and
+is not a substitute for a reviewed PostgreSQL migration:
 
 ```powershell
 npm run db:apply-schema -- --env-file .env.staging
@@ -75,7 +76,9 @@ Current schema discipline:
 
 - SQLAlchemy creates missing tables from backend models.
 - SQLite development DBs also receive compatibility updates for older local schemas.
-- No destructive schema migration runs automatically.
+- Alembic revision `20260823_0001` represents the reviewed PostgreSQL baseline; see `docs/migrations.md` before any managed-database operation.
+- Existing compatible managed databases must be backed up and stamped later, not upgraded from the empty baseline.
+- No destructive Alembic migration runs automatically.
 - Managed staging/production databases should use provider-native backups before schema-related deploys.
 - `npm run db:reset` and demo seeding are local-only and blocked under deployed `APP_ENV` values.
 
@@ -207,7 +210,7 @@ Health endpoints:
 
 ## 11. Rollback And Data Notes
 
-- Keep database backups outside the app process manager until a migration tool is added.
+- Keep database backups outside the app process manager and verify them before every migration operation.
 - For SQLite staging only, run `npm run db:backup` before schema-related deploys. Do not reset or demo-seed staging data.
 - Prefer a managed Postgres-compatible database for real staging and production.
-- For managed databases, take a provider snapshot before `db:apply-schema` or any schema-related deploy.
+- For managed databases, take a provider snapshot and follow `docs/migrations.md`; do not treat `db:apply-schema` as the Alembic rollout command.
