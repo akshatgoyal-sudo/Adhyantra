@@ -90,7 +90,7 @@ def _build_recommended_commands(*, env_file: str, worker_mode: str) -> list[str]
     display_env_file = _display_arg(env_file)
     commands = [
         f"npm run db:preflight -- --env-file {display_env_file}",
-        f"npm run db:apply-schema -- --env-file {display_env_file}",
+        "npm run db:migrate",
         f"npm run staging:backend -- --env-file {display_env_file}",
     ]
     if worker_mode == "external":
@@ -119,9 +119,9 @@ def _build_launch_checklist(*, env_file: str, worker_mode: str) -> list[dict[str
         },
         {
             "key": "prelaunch_schema",
-            "label": "Schema apply path",
-            "command": f"npm run db:apply-schema -- --env-file {display_env_file}",
-            "purpose": "Apply the lightweight compatibility/schema path before launch or after schema-related changes.",
+            "label": "Reviewed migration path",
+            "command": "npm run db:migrate",
+            "purpose": "Run Alembic once from an authorized pre-deploy owner with EXAM_GURU_MIGRATION_DB_URL; API and workers never migrate.",
             "stage": "prelaunch",
         },
         {

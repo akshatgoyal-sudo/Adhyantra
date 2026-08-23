@@ -19,6 +19,10 @@ def test_deployment_preflight_launch_checklist_includes_launch_stages() -> None:
     assert "postdeploy_billing" in keys
     assert "postdeploy_admin" in keys
 
+    prelaunch_schema = next(item for item in checklist if item["key"] == "prelaunch_schema")
+    assert prelaunch_schema["command"] == "npm run db:migrate"
+    assert "authorized" in prelaunch_schema["purpose"].lower()
+
     postdeploy_public = next(item for item in checklist if item["key"] == "postdeploy_public")
     assert "smoke:staging" in postdeploy_public["command"]
     assert "pricing" in postdeploy_public["purpose"].lower() or "public" in postdeploy_public["purpose"].lower()

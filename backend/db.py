@@ -5,20 +5,30 @@ import logging
 from typing import Callable, Generator, Iterator
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.config import LEGACY_BACKEND_DB_FILE_PATH, get_active_sqlite_db_path, get_settings
 from backend.model_base import Base
+from backend.services.database_revision_service import REQUIRED_APPLICATION_TABLES, inspect_database_revision
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 DB_SCHEMA_MANAGEMENT = {
-    "strategy": "sqlalchemy_create_all_plus_sqlite_compatibility_updates",
-    "migration_framework": "alembic_baseline_available",
+    "strategy": "local_sqlite_bootstrap_or_read_only_alembic_validation",
+    "migration_framework": "alembic_required_for_postgresql",
     "sqlite_compatibility_updates": True,
+    "startup_ddl_in_deployed_environments": False,
     "destructive_auto_migrations": False,
 }
+
+
+class DatabaseLifecycleError(RuntimeError):
+    def __init__(self, status: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
 
 engine = create_engine(
     settings.db_url,
@@ -43,29 +53,36 @@ def get_db() -> Generator:
         yield db
 
 
-def database_readiness_snapshot() -> dict:
-    db_type = str(settings.db_url or "").split(":", 1)[0] or "unknown"
-    sqlite_db_path = get_active_sqlite_db_path(settings.db_url)
-    required_tables = {
-        "analytics_events",
-        "billing_event_receipts",
-        "content_items",
-        "email_otp_challenges",
-        "media_render_jobs",
-        "runtime_process_heartbeats",
-        "usage_consumption_records",
-        "user_accounts",
-        "user_sessions",
-        "user_settings",
-    }
+def database_readiness_snapshot(*, configured_settings=None, database_engine: Engine | None = None) -> dict:
+    active_settings = configured_settings or settings
+    active_engine = database_engine or engine
+    db_type = make_url(active_settings.db_url).get_backend_name()
+    sqlite_db_path = get_active_sqlite_db_path(active_settings.db_url)
+
+    if db_type == "postgresql":
+        revision = inspect_database_revision(active_engine)
+        return {
+            "ok": revision.ok,
+            "status": "ready" if revision.ok else revision.status,
+            "database_type": db_type,
+            "ping": "ok" if revision.status != "database_unavailable" else "failed",
+            "error_type": revision.error_type,
+            "schema_management": DB_SCHEMA_MANAGEMENT,
+            "schema": {
+                "required_tables_present": not revision.missing_required_tables,
+                "required_table_count": len(REQUIRED_APPLICATION_TABLES),
+                "missing_required_tables": list(revision.missing_required_tables),
+            },
+            "revision": revision.to_public_dict(),
+            "sqlite": {"configured": False, "file_backed": False, "parent_exists": False},
+        }
 
     try:
-        with engine.connect() as connection:
+        with active_engine.connect() as connection:
             connection.execute(text("SELECT 1")).scalar()
-
-        inspector = inspect(engine)
+        inspector = inspect(active_engine)
         existing_tables = set(inspector.get_table_names())
-        missing_tables = sorted(required_tables - existing_tables)
+        missing_tables = sorted(REQUIRED_APPLICATION_TABLES - existing_tables)
         return {
             "ok": not missing_tables,
             "status": "ready" if not missing_tables else "schema_incomplete",
@@ -74,11 +91,12 @@ def database_readiness_snapshot() -> dict:
             "schema_management": DB_SCHEMA_MANAGEMENT,
             "schema": {
                 "required_tables_present": not missing_tables,
-                "required_table_count": len(required_tables),
+                "required_table_count": len(REQUIRED_APPLICATION_TABLES),
                 "missing_required_tables": missing_tables,
             },
+            "revision": {"ok": True, "status": "not_applicable", "source_heads": [], "database_revisions": []},
             "sqlite": {
-                "configured": sqlite_db_path is not None or str(settings.db_url or "").startswith("sqlite"),
+                "configured": sqlite_db_path is not None or str(active_settings.db_url or "").startswith("sqlite"),
                 "file_backed": sqlite_db_path is not None,
                 "parent_exists": bool(sqlite_db_path and sqlite_db_path.parent.exists()),
             },
@@ -94,11 +112,12 @@ def database_readiness_snapshot() -> dict:
             "schema_management": DB_SCHEMA_MANAGEMENT,
             "schema": {
                 "required_tables_present": False,
-                "required_table_count": len(required_tables),
+                "required_table_count": len(REQUIRED_APPLICATION_TABLES),
                 "missing_required_tables": [],
             },
+            "revision": {"ok": False, "status": "database_unavailable", "source_heads": [], "database_revisions": []},
             "sqlite": {
-                "configured": sqlite_db_path is not None or str(settings.db_url or "").startswith("sqlite"),
+                "configured": sqlite_db_path is not None or str(active_settings.db_url or "").startswith("sqlite"),
                 "file_backed": sqlite_db_path is not None,
                 "parent_exists": bool(sqlite_db_path and sqlite_db_path.parent.exists()),
             },
@@ -860,9 +879,82 @@ def _ensure_hierarchical_sqlite_tables() -> None:
 
 
 
-def init_db() -> None:
+def bootstrap_local_sqlite_schema() -> None:
+    """Create/update schema only for an explicitly local development/test SQLite database."""
+    environment = settings.environment_name
+    raw_environment = settings.raw_environment_name
+    backend_name = make_url(settings.db_url).get_backend_name()
+    if raw_environment not in {"development", "dev", "local", "test", "testing"} or environment not in {
+        "development",
+        "test",
+    }:
+        raise DatabaseLifecycleError(
+            "local_bootstrap_forbidden",
+            "Automatic schema bootstrap is restricted to explicit development/test environments.",
+        )
+    if backend_name != "sqlite":
+        raise DatabaseLifecycleError(
+            "local_bootstrap_forbidden",
+            "Automatic schema bootstrap is restricted to local SQLite databases; use Alembic for PostgreSQL.",
+        )
+
     from backend.models import Base as ModelsBase
 
     _prepare_sqlite_path()
     ModelsBase.metadata.create_all(bind=engine)
     _ensure_hierarchical_sqlite_tables()
+
+
+def prepare_database_for_startup(
+    *,
+    configured_settings=None,
+    database_engine: Engine | None = None,
+    skip_local_bootstrap: bool = False,
+) -> dict:
+    """Bootstrap local SQLite or validate PostgreSQL without applying startup migrations."""
+    active_settings = configured_settings or settings
+    active_engine = database_engine or engine
+    backend_name = make_url(active_settings.db_url).get_backend_name()
+    explicit_local_environment = (
+        active_settings.raw_environment_name in {"development", "dev", "local", "test", "testing"}
+        and active_settings.environment_name in {"development", "test"}
+    )
+
+    if backend_name == "sqlite" and explicit_local_environment:
+        if active_settings is not settings or active_engine is not engine:
+            raise DatabaseLifecycleError(
+                "local_bootstrap_context_mismatch",
+                "Local SQLite bootstrap must use the configured application engine.",
+            )
+        if not skip_local_bootstrap:
+            bootstrap_local_sqlite_schema()
+        readiness = database_readiness_snapshot()
+        if not readiness["ok"]:
+            raise DatabaseLifecycleError(
+                str(readiness.get("status") or "schema_incomplete"),
+                "The local SQLite schema is not ready.",
+            )
+        return readiness
+
+    if backend_name != "postgresql":
+        raise DatabaseLifecycleError(
+            "unsupported_database",
+            "Deployed startup requires a migrated PostgreSQL database; startup schema creation is disabled.",
+        )
+
+    readiness = database_readiness_snapshot(
+        configured_settings=active_settings,
+        database_engine=active_engine,
+    )
+    if not readiness["ok"]:
+        status = str(readiness.get("revision", {}).get("status") or readiness.get("status") or "database_unavailable")
+        raise DatabaseLifecycleError(
+            status,
+            f"PostgreSQL schema validation failed with status '{status}'; apply or stamp migrations separately.",
+        )
+    return readiness
+
+
+def init_db() -> None:
+    """Backward-compatible local-only alias; never creates PostgreSQL/deployed schema."""
+    bootstrap_local_sqlite_schema()

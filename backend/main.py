@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.config import get_active_sqlite_db_path, get_settings, normalize_exam, read_demo_seed_metadata
-from backend.db import SessionLocal, database_readiness_snapshot, init_db, managed_db_session
+from backend.db import SessionLocal, database_readiness_snapshot, managed_db_session, prepare_database_for_startup
 from backend.routes.account_billing_routes import router as account_billing_router
 from backend.routes.admin_content_routes import router as admin_content_router
 from backend.routes.admin_ops_routes import router as admin_ops_router
@@ -372,7 +372,7 @@ async def lifespan(fastapi_app: FastAPI):
             error_count=len(validation.errors),
             warning_count=len(validation.warnings),
         )
-        init_db()
+        database_startup = prepare_database_for_startup()
         if settings.effective_media_render_worker_mode != "disabled":
             initialize_media_render_storage(settings)
         with managed_db_session(SessionLocal) as recovery_db:
@@ -405,7 +405,7 @@ async def lifespan(fastapi_app: FastAPI):
             )
         fastapi_app.state.boot_status = "ready"
         fastapi_app.state.boot_completed_at = _utc_iso_now()
-        logger.info("Database initialized successfully.")
+        logger.info("Database startup preparation succeeded with status %s.", database_startup.get("status"))
         log_event(
             event_logger,
             logging.INFO,

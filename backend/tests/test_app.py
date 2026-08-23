@@ -3209,7 +3209,7 @@ def test_readiness_endpoint_reports_boot_db_and_config_without_secrets(client: T
     assert body["checks"]["database"]["ok"] is True
     assert body["checks"]["database"]["ping"] == "ok"
     assert body["checks"]["database"]["schema"]["required_tables_present"] is True
-    assert body["checks"]["database"]["schema_management"]["strategy"] == "sqlalchemy_create_all_plus_sqlite_compatibility_updates"
+    assert body["checks"]["database"]["schema_management"]["strategy"] == "local_sqlite_bootstrap_or_read_only_alembic_validation"
     assert body["checks"]["database"]["schema_management"]["destructive_auto_migrations"] is False
     assert body["checks"]["configuration"]["ok"] is True
     assert body["checks"]["media_render_worker"]["mode"] in {"embedded", "external", "disabled"}

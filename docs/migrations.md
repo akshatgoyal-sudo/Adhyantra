@@ -31,15 +31,29 @@ python -m alembic upgrade head --sql
 Never put the URL in a tracked file or command history. `downgrade base` is
 destructive and is permitted only against a validated disposable database.
 
-The baseline intentionally preserves existing SQLAlchemy behavior:
+The baseline intentionally preserves existing SQLAlchemy model behavior:
 
 - business defaults remain Python/ORM-side unless metadata already defines a
   server default;
 - JSON-shaped fields remain PostgreSQL `TEXT`;
 - RLS policies and least-privileged application roles are deferred to a
   separate security-reviewed migration;
-- application and worker startup still call the existing `create_all()` path.
-  Removing that startup behavior requires a later deployment-coordination task.
+- API, embedded-worker, and external-worker startup never call `create_all()`,
+  Alembic upgrade, or Alembic stamp for PostgreSQL. They perform read-only
+  revision and required-table validation and fail closed unless the database is
+  at the single source head.
+- explicit development/test SQLite startup retains local table bootstrap and
+  compatibility updates. PostgreSQL development uses Alembic too.
+
+For a new empty PostgreSQL database, the authorized migration owner runs
+`python -m alembic upgrade head`. For an existing compatible Supabase database,
+only after a verified backup, zero-drift comparison, and explicit operational
+approval, run `python -m alembic stamp 20260823_0001`. Stamping records migration
+history; it does not create or repair existing tables.
+
+API and worker processes must never both attempt migrations. A future Render
+deployment needs one separately controlled pre-deploy migration owner; no Render
+configuration is added by this change.
 
 For a managed database, take and verify a native backup, compare the live schema
 to SQLAlchemy metadata and the baseline, and obtain explicit authorization before

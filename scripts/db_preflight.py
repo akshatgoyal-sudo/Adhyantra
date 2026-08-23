@@ -11,14 +11,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Inspect Adhyantra DB readiness and apply lightweight schema updates when requested.")
+    parser = argparse.ArgumentParser(description="Read-only inspection of Adhyantra database readiness and migration state.")
     parser.add_argument("--env-file", default="", help="Optional env file to load before DB checks.")
     parser.add_argument("--override-env-file", action="store_true", help="Let --env-file values override existing process env vars.")
-    parser.add_argument(
-        "--apply-schema-updates",
-        action="store_true",
-        help="Run backend init_db(), which creates tables and applies current SQLite compatibility updates.",
-    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON only.")
     return parser
 
@@ -33,7 +28,7 @@ def _load_optional_env(env_file: str, *, override: bool) -> str | None:
     return str(env_path) if env_path else None
 
 
-def _build_summary(*, env_file_loaded: str | None, applied_schema_updates: bool) -> dict:
+def _build_summary(*, env_file_loaded: str | None) -> dict:
     from backend.config import get_active_sqlite_db_path, get_demo_seed_marker_path, get_settings
     from backend.db import DB_SCHEMA_MANAGEMENT, database_readiness_snapshot
     from local_db_tools import build_local_runtime_state_summary
@@ -49,13 +44,14 @@ def _build_summary(*, env_file_loaded: str | None, applied_schema_updates: bool)
         "environment": settings.environment_name,
         "deployed_mode": settings.deployed_mode,
         "env_file_loaded": env_file_loaded,
-        "applied_schema_updates": applied_schema_updates,
+        "read_only": True,
         "database": {
             "type": readiness.get("database_type"),
             "status": readiness.get("status"),
             "ping": readiness.get("ping"),
             "schema_ok": bool(readiness.get("schema", {}).get("required_tables_present")),
             "missing_required_tables": readiness.get("schema", {}).get("missing_required_tables", []),
+            "revision": readiness.get("revision", {}),
             "sqlite_file_backed": bool(readiness.get("sqlite", {}).get("file_backed")),
             "sqlite_path": sqlite_path.as_posix() if sqlite_path and not settings.deployed_mode else None,
         },
@@ -85,7 +81,9 @@ def _print_human_summary(summary: dict) -> None:
     print(f"- environment: {summary['environment']} (deployed={summary['deployed_mode']})")
     print(f"- db: {summary['database']['type']} status={summary['database']['status']} schema_ok={summary['database']['schema_ok']}")
     print(f"- schema strategy: {summary['schema_management']['strategy']}")
-    print(f"- schema updates applied: {summary['applied_schema_updates']}")
+    print("- inspection mode: read-only (no startup DDL or migrations)")
+    revision = summary["database"].get("revision") or {}
+    print(f"- alembic revision: {revision.get('status', 'not_applicable')}")
     print(f"- backup supported: {summary['operations']['backup_supported']}")
     print(f"- local reset allowed: {summary['operations']['local_reset_allowed']}")
     print(f"- demo seed allowed: {summary['operations']['demo_seed_allowed']}")
@@ -127,12 +125,7 @@ def main() -> int:
     args = _build_parser().parse_args()
     env_file_loaded = _load_optional_env(args.env_file, override=bool(args.override_env_file))
 
-    if args.apply_schema_updates:
-        from backend.db import init_db
-
-        init_db()
-
-    summary = _build_summary(env_file_loaded=env_file_loaded, applied_schema_updates=bool(args.apply_schema_updates))
+    summary = _build_summary(env_file_loaded=env_file_loaded)
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:

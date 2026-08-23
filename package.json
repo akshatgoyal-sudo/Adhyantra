@@ -11,7 +11,7 @@
     "typecheck": "npm run typecheck --workspace frontend",
     "db:preflight": "python scripts/db_preflight.py",
     "db:runtime-status": "python scripts/demo_runtime_state.py status",
-    "db:apply-schema": "python scripts/db_preflight.py --apply-schema-updates",
+    "db:migrate": "python -m alembic upgrade head",
     "db:reset": "python scripts/demo_runtime_state.py reset --yes",
     "db:backup": "python scripts/backup_sqlite_db.py",
     "db:seed-demo-accounts": "python scripts/demo_runtime_state.py seed-accounts",

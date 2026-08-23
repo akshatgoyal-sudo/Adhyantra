@@ -8,7 +8,7 @@ import threading
 from typing import Sequence
 
 from backend.config import get_settings
-from backend.db import init_db
+from backend.db import DatabaseLifecycleError, prepare_database_for_startup
 from backend.services.media_render_dispatch_service import run_media_render_worker_forever, run_media_render_worker_once
 from backend.services.media_storage_service import MediaStorageInitializationError, initialize_media_render_storage
 
@@ -52,7 +52,7 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-db-init",
         action="store_true",
-        help="Skip startup DB initialization if another process already handles it.",
+        help="Skip local SQLite bootstrap only. PostgreSQL revision validation is never skipped.",
     )
     return parser
 
@@ -98,8 +98,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("Media storage initialization failed [%s]: %s", exc.reason, exc)
         return 3
 
-    if not args.skip_db_init:
-        init_db()
+    try:
+        prepare_database_for_startup(skip_local_bootstrap=bool(args.skip_db_init))
+    except DatabaseLifecycleError as exc:
+        logger.error("Database startup validation failed [%s]: %s", exc.status, exc)
+        return 4
 
     stop_event = threading.Event()
     _install_signal_handlers(stop_event)

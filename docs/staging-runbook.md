@@ -65,20 +65,20 @@ Inspect DB readiness before launching:
 npm run db:preflight -- --env-file .env.staging
 ```
 
-The legacy runtime schema command still uses the current `create_all()` path and
-is not a substitute for a reviewed PostgreSQL migration:
+Database preflight is read-only. For a new empty PostgreSQL database, one
+authorized migration owner must set `EXAM_GURU_MIGRATION_DB_URL` and run:
 
 ```powershell
-npm run db:apply-schema -- --env-file .env.staging
+npm run db:migrate
 ```
 
 Current schema discipline:
 
-- SQLAlchemy creates missing tables from backend models.
-- SQLite development DBs also receive compatibility updates for older local schemas.
+- API and worker startup never create or alter PostgreSQL tables.
+- Explicit development/test SQLite startup creates missing tables and applies compatibility updates for older local schemas.
 - Alembic revision `20260823_0001` represents the reviewed PostgreSQL baseline; see `docs/migrations.md` before any managed-database operation.
 - Existing compatible managed databases must be backed up and stamped later, not upgraded from the empty baseline.
-- No destructive Alembic migration runs automatically.
+- No Alembic migration or stamp runs automatically. API and worker require the single source head and all required tables.
 - Managed staging/production databases should use provider-native backups before schema-related deploys.
 - `npm run db:reset` and demo seeding are local-only and blocked under deployed `APP_ENV` values.
 
@@ -213,4 +213,4 @@ Health endpoints:
 - Keep database backups outside the app process manager and verify them before every migration operation.
 - For SQLite staging only, run `npm run db:backup` before schema-related deploys. Do not reset or demo-seed staging data.
 - Prefer a managed Postgres-compatible database for real staging and production.
-- For managed databases, take a provider snapshot and follow `docs/migrations.md`; do not treat `db:apply-schema` as the Alembic rollout command.
+- For managed databases, take a provider snapshot and follow `docs/migrations.md`. Use one authorized migration owner; API and worker processes must not run migrations.

@@ -28,7 +28,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--worker-id", type=str, default="", help="Optional worker identifier override.")
     parser.add_argument("--poll-interval-seconds", type=float, default=None, help="Optional queue poll interval override.")
     parser.add_argument("--claim-lease-seconds", type=int, default=None, help="Optional claim lease duration override.")
-    parser.add_argument("--skip-db-init", action="store_true", help="Skip DB initialization when another process already handles it.")
+    parser.add_argument("--skip-db-init", action="store_true", help="Skip local SQLite bootstrap only; deployed PostgreSQL validation is never skipped.")
     return parser
 
 
@@ -44,17 +44,19 @@ def _load_optional_env_file(env_file: str, *, override: bool) -> str | None:
 
 def _validate_worker_startup() -> int:
     from backend.config import Settings
+    from backend.db import database_readiness_snapshot
     from backend.services.media_storage_service import get_media_render_storage_availability, media_render_output_dir_is_relative_to_project
 
     settings = Settings()
     result = settings.validate_runtime_config(process_role="worker")
     storage = get_media_render_storage_availability(settings, create=False)
+    database = database_readiness_snapshot(configured_settings=settings)
     worker_mode = settings.effective_media_render_worker_mode
 
     print(
         "Adhyantra worker preflight: "
         f"environment={result.environment} ok={result.ok} mode={worker_mode} "
-        f"storage_ready={bool(storage['ready'])}"
+        f"storage_ready={bool(storage['ready'])} database_ready={bool(database['ok'])}"
     )
     for issue in result.errors:
         print(f"ERROR [{issue.category}.{issue.code}] {issue.message}")
@@ -62,6 +64,10 @@ def _validate_worker_startup() -> int:
         print(f"WARNING [{issue.category}.{issue.code}] {issue.message}")
 
     failed = not result.ok
+    if not database["ok"]:
+        revision_status = str((database.get("revision") or {}).get("status") or database.get("status") or "unknown")
+        print(f"ERROR [database.schema_not_ready] Read-only schema validation failed with status={revision_status}.")
+        failed = True
     if worker_mode != "external":
         print(
             "ERROR [deployment.worker_mode_not_external] "
