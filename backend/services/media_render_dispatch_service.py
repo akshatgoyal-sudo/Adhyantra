@@ -402,7 +402,11 @@ class MediaRenderDispatcher:
             recovered_jobs = mark_stale_media_render_jobs_abandoned(db, now=current_time)
             exhausted_jobs = mark_exhausted_retryable_media_render_jobs_failed(db, now=current_time)
             cleaned_jobs = cleanup_expired_media_render_artifacts(db, settings=get_settings(), now=current_time)
-            storage_availability = get_media_render_storage_availability(self._settings, create=False)
+            storage_availability = get_media_render_storage_availability(
+                self._settings,
+                create=False,
+                inspect_remote=False,
+            )
             if not bool(storage_availability.get("ready")):
                 deferred_jobs = defer_claimable_media_render_jobs_for_pipeline_issue(
                     db,

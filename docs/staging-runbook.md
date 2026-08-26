@@ -100,7 +100,7 @@ The script enables uvicorn proxy headers by default and passes `UVICORN_FORWARDE
 
 ## 6. Launch Worker
 
-If `MEDIA_RENDER_WORKER_MODE=external`, start the media worker as a separate long-running process:
+If `MEDIA_RENDER_WORKER_MODE=external`, start the media worker as a separate long-running process. This is not the first-launch Render Free topology, which uses one embedded worker process:
 
 ```powershell
 npm run staging:worker -- --env-file .env.staging

@@ -498,6 +498,9 @@ app.add_middleware(
         "X-Adhyantra-Export-Filename",
         "X-Adhyantra-Export-Version",
         "X-Adhyantra-Export-Generated-At",
+        "X-Adhyantra-Render-Job",
+        "X-Adhyantra-Render-Type",
+        "X-Adhyantra-Render-State",
     ],
     max_age=settings.effective_cors_max_age_seconds,
 )

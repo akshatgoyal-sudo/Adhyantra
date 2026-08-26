@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import ObjectDeletedError
 
 from backend.config import Settings, get_settings
+from backend.services.durable_media_storage_service import (
+    MediaStorageProviderError,
+    delete_media_artifact,
+    is_supabase_media_reference,
+)
 from backend.models import MediaRenderJob
 from backend.services.media_storage_service import resolve_media_render_storage_path
 
@@ -358,7 +363,7 @@ def serialize_media_render_job(job: MediaRenderJob, *, download_path: str | None
         "request_metadata": _json_load(job.request_metadata_json),
         "output": {
             "asset_filename": job.output_asset_filename,
-            "asset_path": job.output_asset_path,
+            "asset_path": None if is_supabase_media_reference(job.output_asset_path) else job.output_asset_path,
             "download_path": download_path if artifact_downloadable else None,
             "content_type": job.output_content_type,
             "file_size_bytes": job.output_file_size_bytes,
@@ -1203,6 +1208,24 @@ def cleanup_expired_media_render_artifacts(
     cleaned_jobs: list[MediaRenderJob] = []
 
     for job in jobs:
+        if is_supabase_media_reference(job.output_asset_path):
+            try:
+                delete_media_artifact(job.output_asset_path, settings=active_settings)
+            except MediaStorageProviderError as exc:
+                mark_media_render_artifact_cleanup_failed(
+                    db,
+                    job=job,
+                    cleanup_error=exc.reason,
+                    retry_after_at=build_media_render_artifact_cleanup_retry_after(
+                        (job.artifact_cleanup_failure_count or 0) + 1,
+                        now=current_time,
+                    ),
+                    occurred_at=current_time,
+                )
+                continue
+            cleaned_jobs.append(mark_media_render_artifact_deleted(db, job=job, occurred_at=current_time))
+            continue
+
         artifact_path = resolve_media_render_asset_path(job, settings=active_settings, require_exists=False)
         artifact_directory = resolve_media_render_artifact_directory(job, settings=active_settings, require_exists=False)
 

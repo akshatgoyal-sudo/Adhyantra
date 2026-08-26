@@ -3097,6 +3097,10 @@ def test_health_redacts_deployed_database_locator(client: TestClient, monkeypatc
         trusted_hosts="api.adhyantra.example",
         secure_session_cookies=True,
         media_render_worker_mode="external",
+        media_storage_backend="supabase",
+        supabase_url="https://storage.adhyantra.example",
+        supabase_service_role_key="test-service-role-key",
+        supabase_media_bucket="private-media",
         allow_sqlite_in_production=True,
     )
     monkeypatch.setattr(main_module, "settings", deployed_settings)
@@ -3325,7 +3329,6 @@ def test_readiness_requires_fresh_external_worker_in_deployed_mode(
             "schema": {"required_tables_present": True},
         },
     )
-
     response = client.get("/health/ready")
 
     assert response.status_code == 503
@@ -3352,6 +3355,7 @@ def test_readiness_accepts_fresh_external_worker_heartbeat_in_deployed_mode(
     deployed_settings = Settings(
         app_env="production",
         ai_provider="openai",
+        ai_provider_chain="openai",
         openai_api_key="sk-live",
         openai_model="gpt-4o-mini",
         openai_base_url="https://api.openai.com/v1",
@@ -3366,6 +3370,10 @@ def test_readiness_accepts_fresh_external_worker_heartbeat_in_deployed_mode(
         trusted_hosts="api.adhyantra.example",
         secure_session_cookies=True,
         media_render_worker_mode="external",
+        media_storage_backend="supabase",
+        supabase_url="https://storage.adhyantra.example",
+        supabase_service_role_key="test-service-role-key",
+        supabase_media_bucket="private-media",
         allow_sqlite_in_production=True,
     )
     monkeypatch.setattr(main_module, "settings", deployed_settings)
@@ -3379,6 +3387,17 @@ def test_readiness_accepts_fresh_external_worker_heartbeat_in_deployed_mode(
             "ping": "ok",
             "schema_management": {"strategy": "test"},
             "schema": {"required_tables_present": True},
+        },
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "build_media_render_pipeline_snapshot",
+        lambda *args, **kwargs: {
+            "required_for_readiness": True,
+            "ready": True,
+            "submission_ready": True,
+            "storage_ready": True,
         },
     )
 
@@ -3746,6 +3765,7 @@ def test_production_config_validation_accepts_explicit_safe_config() -> None:
     settings = Settings(
         app_env="production",
         ai_provider="openai",
+        ai_provider_chain="openai",
         openai_api_key="sk-test",
         openai_model="gpt-4o-mini",
         openai_base_url="https://api.openai.com/v1",
@@ -3758,6 +3778,10 @@ def test_production_config_validation_accepts_explicit_safe_config() -> None:
         frontend_origin="https://app.adhyantra.example",
         backend_public_url="https://api.adhyantra.example",
         auth_dev_return_otp=False,
+        media_storage_backend="supabase",
+        supabase_url="https://storage.adhyantra.example",
+        supabase_service_role_key="test-service-role-key",
+        supabase_media_bucket="private-media",
     )
 
     result = settings.enforce_production_config()

@@ -53,7 +53,9 @@ PAYMENT_PROVIDER_ALIASES = {
     "stripe_checkout": "stripe",
 }
 TTS_OUTPUT_FORMATS = ("mp3", "opus", "aac", "flac", "wav", "pcm")
+MEDIA_STORAGE_BACKENDS = ("local", "supabase")
 DEFAULT_MEDIA_RENDER_OUTPUT_DIR = (PROJECT_ROOT / "generated_media" / "renders").resolve()
+DEFAULT_MEDIA_STORAGE_MAX_OBJECT_BYTES = 49_000_000
 DEFAULT_PAYMENT_STRIPE_BASE_URL = "https://api.stripe.com/v1"
 DEFAULT_PAYMENT_RAZORPAY_BASE_URL = "https://api.razorpay.com/v1"
 
@@ -1101,6 +1103,11 @@ class Settings:
     release_commit: str = field(default_factory=lambda: _first_env("RELEASE_COMMIT", "GIT_SHA", "VERCEL_GIT_COMMIT_SHA"))
     deployment_id: str = field(default_factory=lambda: _first_env("DEPLOYMENT_ID", "RENDER_INSTANCE_ID", "FLY_ALLOC_ID"))
     db_url: str = field(default_factory=lambda: _env("EXAM_GURU_DB_URL", get_default_db_url()))
+    db_pool_size: int = field(default_factory=lambda: _env_int("DB_POOL_SIZE", 2))
+    db_max_overflow: int = field(default_factory=lambda: _env_int("DB_MAX_OVERFLOW", 1))
+    db_pool_timeout_seconds: int = field(default_factory=lambda: _env_int("DB_POOL_TIMEOUT_SECONDS", 15))
+    db_pool_recycle_seconds: int = field(default_factory=lambda: _env_int("DB_POOL_RECYCLE_SECONDS", 300))
+    db_pool_pre_ping: bool = field(default_factory=lambda: _env_bool("DB_POOL_PRE_PING", True))
     ai_provider: str = field(default_factory=lambda: _env("AI_PROVIDER", "mock"))
     ai_provider_chain: str = field(default_factory=lambda: _env("AI_PROVIDER_CHAIN", ""))
     ai_timeout_seconds: int = field(default_factory=lambda: _env_int("AI_TIMEOUT_SECONDS", 30))
@@ -1114,7 +1121,14 @@ class Settings:
     tts_openai_api_key: str = field(default_factory=lambda: _first_env("TTS_OPENAI_API_KEY", "OPENAI_API_KEY"))
     tts_openai_base_url: str = field(default_factory=lambda: _env("TTS_OPENAI_BASE_URL", "https://api.openai.com/v1"))
     tts_openai_voice: str = field(default_factory=lambda: _env("TTS_OPENAI_VOICE", "alloy"))
+    media_storage_backend: str = field(default_factory=lambda: _env("MEDIA_STORAGE_BACKEND", "local"))
     media_render_output_dir: str = field(default_factory=lambda: _env("MEDIA_RENDER_OUTPUT_DIR", DEFAULT_MEDIA_RENDER_OUTPUT_DIR.as_posix()))
+    supabase_url: str = field(default_factory=lambda: _env("SUPABASE_URL", ""))
+    supabase_service_role_key: str = field(default_factory=lambda: _env("SUPABASE_SERVICE_ROLE_KEY", ""))
+    supabase_media_bucket: str = field(default_factory=lambda: _env("SUPABASE_MEDIA_BUCKET", ""))
+    media_storage_request_timeout_seconds: float = field(default_factory=lambda: _env_float("MEDIA_STORAGE_REQUEST_TIMEOUT_SECONDS", 15.0))
+    media_storage_max_object_bytes: int = field(default_factory=lambda: _env_int("MEDIA_STORAGE_MAX_OBJECT_BYTES", DEFAULT_MEDIA_STORAGE_MAX_OBJECT_BYTES))
+    media_signed_url_ttl_seconds: int = field(default_factory=lambda: _env_int("MEDIA_SIGNED_URL_TTL_SECONDS", 300))
     media_render_worker_mode: str = field(default_factory=lambda: _env("MEDIA_RENDER_WORKER_MODE", "embedded"))
     media_render_worker_poll_seconds: float = field(default_factory=lambda: _env_float("MEDIA_RENDER_WORKER_POLL_SECONDS", 0.25))
     media_render_claim_lease_seconds: int = field(default_factory=lambda: _env_int("MEDIA_RENDER_CLAIM_LEASE_SECONDS", 300))
@@ -1378,6 +1392,43 @@ class Settings:
         return output_dir.resolve()
 
     @property
+    def effective_media_storage_backend(self) -> str:
+        candidate = str(self.media_storage_backend or "").strip().lower()
+        return candidate if candidate in MEDIA_STORAGE_BACKENDS else "local"
+
+    @property
+    def effective_media_storage_request_timeout_seconds(self) -> float:
+        return max(float(self.media_storage_request_timeout_seconds or 0), 0.1)
+
+    @property
+    def effective_media_storage_max_object_bytes(self) -> int:
+        return max(int(self.media_storage_max_object_bytes or 0), 1)
+
+    @property
+    def effective_media_signed_url_ttl_seconds(self) -> int:
+        return max(int(self.media_signed_url_ttl_seconds or 0), 1)
+
+    @property
+    def effective_db_pool_size(self) -> int:
+        return int(self.db_pool_size)
+
+    @property
+    def effective_db_max_overflow(self) -> int:
+        return int(self.db_max_overflow)
+
+    @property
+    def effective_db_pool_timeout_seconds(self) -> int:
+        return int(self.db_pool_timeout_seconds)
+
+    @property
+    def effective_db_pool_recycle_seconds(self) -> int:
+        return int(self.db_pool_recycle_seconds)
+
+    @property
+    def effective_db_pool_pre_ping(self) -> bool:
+        return bool(self.db_pool_pre_ping)
+
+    @property
     def effective_media_render_worker_mode(self) -> str:
         candidate = _normalize_media_render_worker_mode(self.media_render_worker_mode)
         return candidate if candidate in {"embedded", "external", "disabled"} else "embedded"
@@ -1583,6 +1634,8 @@ class Settings:
             "voice": str(self.tts_openai_voice or "").strip() or None,
             "model": str(self.tts_openai_model or "").strip() or None,
             "output_dir": self.effective_media_render_output_dir.as_posix(),
+            "storage_backend": self.effective_media_storage_backend,
+            "storage_max_object_bytes": self.effective_media_storage_max_object_bytes,
             "worker_mode": self.effective_media_render_worker_mode,
             "embedded_worker_enabled": self.embedded_media_render_worker_enabled,
             "worker_poll_seconds": self.effective_media_render_worker_poll_seconds,
@@ -1899,6 +1952,67 @@ class Settings:
                 "unknown_tts_provider",
                 f"TTS_PROVIDER '{self.tts_provider}' is not recognized; rendering will stay disabled until a supported provider is configured.",
             )
+        raw_media_storage_backend = str(self.media_storage_backend or "").strip().lower()
+        if raw_media_storage_backend not in MEDIA_STORAGE_BACKENDS:
+            add_issue(
+                "error",
+                "media_storage",
+                "unknown_media_storage_backend",
+                "MEDIA_STORAGE_BACKEND must be either local or supabase.",
+            )
+        if float(self.media_storage_request_timeout_seconds or 0) < 0.1:
+            add_issue(
+                "error",
+                "media_storage",
+                "invalid_media_storage_timeout",
+                "MEDIA_STORAGE_REQUEST_TIMEOUT_SECONDS must be at least 0.1 seconds.",
+            )
+        if int(self.media_storage_max_object_bytes or 0) < 1:
+            add_issue(
+                "error",
+                "media_storage",
+                "invalid_media_storage_max_object_bytes",
+                "MEDIA_STORAGE_MAX_OBJECT_BYTES must be at least 1 byte.",
+            )
+        if int(self.media_storage_max_object_bytes or 0) >= 50_000_000:
+            add_issue(
+                "error" if policy.deployed else "warning",
+                "media_storage",
+                "media_storage_limit_not_below_provider_ceiling",
+                "MEDIA_STORAGE_MAX_OBJECT_BYTES must remain below the Supabase Free 50 MB object ceiling.",
+            )
+        if not 60 <= int(self.media_signed_url_ttl_seconds or 0) <= 3600:
+            add_issue(
+                "error",
+                "media_storage",
+                "invalid_media_signed_url_ttl",
+                "MEDIA_SIGNED_URL_TTL_SECONDS must be between 60 and 3600 seconds.",
+            )
+
+        if self.effective_media_storage_backend == "supabase":
+            supabase_url = str(self.supabase_url or "").strip().rstrip("/")
+            service_role_key = str(self.supabase_service_role_key or "").strip()
+            media_bucket = str(self.supabase_media_bucket or "").strip()
+            if not supabase_url:
+                add_issue("error", "media_storage", "missing_supabase_url", "SUPABASE_URL is required for Supabase media storage.")
+            elif not _is_http_url(supabase_url) or (policy.deployed and not supabase_url.startswith("https://")):
+                add_issue("error", "media_storage", "invalid_supabase_url", "SUPABASE_URL must be a valid HTTPS URL in deployed environments.")
+            if not service_role_key:
+                add_issue("error", "media_storage", "missing_supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY is required for backend-only media storage access.")
+            elif _looks_like_placeholder_secret(service_role_key):
+                add_issue("error", "secrets", "placeholder_supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY looks like a placeholder value.")
+            if not media_bucket:
+                add_issue("error", "media_storage", "missing_supabase_media_bucket", "SUPABASE_MEDIA_BUCKET must name an existing private bucket.")
+            elif not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}", media_bucket):
+                add_issue("error", "media_storage", "invalid_supabase_media_bucket", "SUPABASE_MEDIA_BUCKET contains unsupported characters.")
+        elif policy.production:
+            add_issue(
+                "error",
+                "media_storage",
+                "local_media_storage_in_production",
+                "Production media rendering requires MEDIA_STORAGE_BACKEND=supabase because local service storage is ephemeral.",
+            )
+
         raw_media_render_output_dir = str(self.media_render_output_dir or "").strip()
         media_storage_uri_match = re.match(r"^(?P<scheme>[a-z][a-z0-9+.-]*)://", raw_media_render_output_dir, re.IGNORECASE)
         if media_storage_uri_match:
@@ -1926,17 +2040,32 @@ class Settings:
                     "relative_media_render_output_dir_in_deployed",
                     "Set MEDIA_RENDER_OUTPUT_DIR to an absolute shared path in deployed environments so API and worker processes resolve artifacts consistently.",
                 )
-            try:
-                output_dir_under_project = self.effective_media_render_output_dir.relative_to(PROJECT_ROOT)
-            except ValueError:
-                output_dir_under_project = None
-            if policy.deployed and self.external_media_render_worker_expected and output_dir_under_project is not None:
+
+        pool_bounds = (
+            ("DB_POOL_SIZE", int(self.db_pool_size), 1, 20, "invalid_db_pool_size"),
+            ("DB_MAX_OVERFLOW", int(self.db_max_overflow), 0, 20, "invalid_db_max_overflow"),
+            ("DB_POOL_TIMEOUT_SECONDS", int(self.db_pool_timeout_seconds), 1, 120, "invalid_db_pool_timeout"),
+            ("DB_POOL_RECYCLE_SECONDS", int(self.db_pool_recycle_seconds), 30, 3600, "invalid_db_pool_recycle"),
+        )
+        for variable_name, configured_value, minimum, maximum, issue_code in pool_bounds:
+            if not minimum <= configured_value <= maximum:
                 add_issue(
-                    "warning",
-                    "deployment",
-                    "project_local_media_render_output_dir_for_external_worker",
-                    "External worker deployments are safer with MEDIA_RENDER_OUTPUT_DIR pointing at a shared mounted path instead of a project-local directory.",
+                    "error",
+                    "database",
+                    issue_code,
+                    f"{variable_name} must be between {minimum} and {maximum}.",
                 )
+        try:
+            output_dir_under_project = self.effective_media_render_output_dir.relative_to(PROJECT_ROOT)
+        except ValueError:
+            output_dir_under_project = None
+        if policy.deployed and self.external_media_render_worker_expected and output_dir_under_project is not None:
+            add_issue(
+                "warning",
+                "deployment",
+                "project_local_media_render_output_dir_for_external_worker",
+                "External worker deployments are safer with MEDIA_RENDER_OUTPUT_DIR pointing at a shared mounted path instead of a project-local directory.",
+            )
         if self.effective_tts_provider == "openai":
             if not str(self.tts_openai_model or "").strip():
                 add_issue("warning", "tts", "missing_tts_openai_model", "TTS_OPENAI_MODEL is missing; OpenAI TTS rendering will be unavailable.")

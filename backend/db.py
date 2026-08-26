@@ -30,11 +30,34 @@ class DatabaseLifecycleError(RuntimeError):
         self.status = status
 
 
-engine = create_engine(
-    settings.db_url,
-    connect_args={"check_same_thread": False} if settings.db_url.startswith("sqlite") else {},
-    pool_pre_ping=not settings.db_url.startswith("sqlite"),
-)
+def database_engine_options(configured_settings=None) -> dict:
+    """Return validated engine options without exposing the configured URL."""
+    active_settings = configured_settings or settings
+    backend_name = make_url(active_settings.db_url).get_backend_name()
+    if backend_name == "sqlite":
+        return {"connect_args": {"check_same_thread": False}}
+    values = {
+        "pool_size": active_settings.effective_db_pool_size,
+        "max_overflow": active_settings.effective_db_max_overflow,
+        "pool_timeout": active_settings.effective_db_pool_timeout_seconds,
+        "pool_recycle": active_settings.effective_db_pool_recycle_seconds,
+    }
+    if not (
+        1 <= values["pool_size"] <= 20
+        and 0 <= values["max_overflow"] <= 20
+        and 1 <= values["pool_timeout"] <= 120
+        and 30 <= values["pool_recycle"] <= 3600
+    ):
+        raise DatabaseLifecycleError("invalid_pool_configuration", "Database pool configuration is invalid.")
+    return {**values, "pool_pre_ping": active_settings.effective_db_pool_pre_ping}
+
+
+def create_database_engine(configured_settings=None) -> Engine:
+    active_settings = configured_settings or settings
+    return create_engine(active_settings.db_url, **database_engine_options(active_settings))
+
+
+engine = create_database_engine(settings)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

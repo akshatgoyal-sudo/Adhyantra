@@ -1,13 +1,13 @@
 # Adhyantra
 
-Adhyantra is a full-stack, subject-aware study application. The frontend is Next.js 16.2.1 with React 18.3.1, TypeScript, and the Pages Router. The backend is FastAPI with SQLAlchemy. Local development and deterministic tests use SQLite; deployed environments are expected to use PostgreSQL through the tracked `psycopg2-binary` driver unless SQLite is explicitly allowed for a small deployment.
+Adhyantra is a full-stack, subject-aware study application. The frontend is Next.js 16.3.3 with React 18.3.1, TypeScript, and the Pages Router. The backend is FastAPI with SQLAlchemy. Local development and deterministic tests use SQLite; deployed environments are expected to use PostgreSQL through the tracked `psycopg2-binary` driver unless SQLite is explicitly allowed for a small deployment.
 
 UPSC has the deepest native knowledge-base coverage. SSC and Banking are selectable exam profiles, but their native material is limited and retrieval can fall back to the shared general-studies corpus. Treat those profiles as product scaffolding with partial content, not equivalent multi-exam corpus depth.
 
 ## What is included
 
 - FastAPI and SQLAlchemy backend with SQLite/PostgreSQL database support
-- Next.js 16.2.1, React 18.3.1, and TypeScript frontend using the Pages Router
+- Next.js 16.3.3, React 18.3.1, and TypeScript frontend using the Pages Router
 - Local markdown knowledge base with dynamically discovered subject-scoped topics and shared-corpus fallback
 - Gemini-first AI provider abstraction with Groq fallback, Mistral QA/testing support, and explicit mock fallback
 - Email-OTP authentication over console, SMTP, or Resend, with DB-backed sessions
@@ -91,7 +91,9 @@ Supported variables:
 - `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`, `PAYMENT_STRIPE_BASE_URL`: Stripe checkout/webhook settings.
 - `PAYMENT_RAZORPAY_KEY_ID`, `PAYMENT_RAZORPAY_KEY_SECRET`, `PAYMENT_RAZORPAY_WEBHOOK_SECRET`, `PAYMENT_RAZORPAY_BASE_URL`, `PAYMENT_RAZORPAY_TOTAL_COUNT`: Razorpay subscription/webhook settings.
 - `TTS_PROVIDER`, `TTS_TIMEOUT_SECONDS`, `TTS_OUTPUT_FORMAT`, `TTS_OPENAI_MODEL`, `TTS_OPENAI_API_KEY`, `TTS_OPENAI_BASE_URL`, `TTS_OPENAI_VOICE`: optional TTS generation settings; disabled by default.
-- `MEDIA_RENDER_OUTPUT_DIR`, `MEDIA_RENDER_WORKER_MODE`, `MEDIA_RENDER_WORKER_POLL_SECONDS`, `MEDIA_RENDER_CLAIM_LEASE_SECONDS`, `MEDIA_RENDER_WORKER_HEARTBEAT_SECONDS`, `MEDIA_RENDER_WORKER_STALE_AFTER_SECONDS`, `MEDIA_RENDER_ARTIFACT_RETENTION_HOURS`: local/mounted filesystem media configuration.
+- `MEDIA_STORAGE_BACKEND`, `MEDIA_RENDER_OUTPUT_DIR`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_MEDIA_BUCKET`, `MEDIA_STORAGE_REQUEST_TIMEOUT_SECONDS`, `MEDIA_STORAGE_MAX_OBJECT_BYTES`, `MEDIA_SIGNED_URL_TTL_SECONDS`: explicit local or durable private Supabase media storage. The service-role key is backend-only.
+- `MEDIA_RENDER_WORKER_MODE`, `MEDIA_RENDER_WORKER_POLL_SECONDS`, `MEDIA_RENDER_CLAIM_LEASE_SECONDS`, `MEDIA_RENDER_WORKER_HEARTBEAT_SECONDS`, `MEDIA_RENDER_WORKER_STALE_AFTER_SECONDS`, `MEDIA_RENDER_ARTIFACT_RETENTION_HOURS`: embedded media queue configuration.
+- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS`, `DB_POOL_PRE_PING`: conservative non-SQLite connection-pool controls.
 - `ALLOW_MOCK_AI_IN_PRODUCTION`: defaults to `false`. Set to `true` only when intentionally deploying without live AI.
 - `ALLOW_SQLITE_IN_PRODUCTION`: defaults to `false`. Set to `true` only for an intentional small SQLite deployment.
 - `STAGING_BACKEND_URL`, `STAGING_FRONTEND_URL`, `STAGING_SMOKE_EMAIL`, `STAGING_SMOKE_SCENARIO`, `STAGING_SMOKE_TIMEOUT_SECONDS`: smoke-check inputs used by `npm run smoke:staging` and `npm run smoke:scenario`. Keep `STAGING_SMOKE_EMAIL` as a dedicated deployed verification mailbox; local deterministic demo accounts intentionally use the separate `@adhyantra.test` domain.
@@ -170,7 +172,7 @@ npm run dev
 - The staging example is intentionally not launchable as copied: preflight fails until `EXAM_GURU_DB_URL` is supplied, and live AI/email/billing credentials are required only for the providers enabled for that deployment.
 - Use `npm run ops:preflight -- --env-file .env.staging` before launch to reuse the current API config, worker config, media storage, and readiness expectations in one place.
 - Staging must use HTTPS `FRONTEND_ORIGIN`, HTTPS `BACKEND_PUBLIC_URL`, explicit `CORS_ALLOWED_ORIGINS`, explicit CORS methods/headers, `TRUSTED_HOSTS` or `BACKEND_PUBLIC_URL` for Host checks, real `EMAIL_DELIVERY_MODE=email`, either SMTP or Resend with its required settings, and `SECURE_SESSION_COOKIES=true`.
-- If `MEDIA_RENDER_WORKER_MODE=external`, use an absolute shared `MEDIA_RENDER_OUTPUT_DIR` that both API and worker processes can read and write. A Linux deployment might use a mounted path like `/var/lib/adhyantra/media-renders`; the staging template uses a Windows-safe absolute example so local preflight commands stay readable too.
+- `MEDIA_STORAGE_BACKEND=local` is for development and tests. Deployed production rejects it. With `MEDIA_STORAGE_BACKEND=supabase`, `MEDIA_RENDER_OUTPUT_DIR` is temporary working space and completed audio and ZIP scene packages are uploaded to an existing private bucket.
 - API and worker startup create and verify the configured local or mounted media directory idempotently before accepting render work. Health/readiness checks only inspect storage and never create it. Object-storage URIs such as `s3://...` are not supported by the current filesystem renderer.
 - `GET /health/live` is the lightweight process check. `GET /health/ready` is the deployment gate because it verifies boot state, DB readiness, and config sanity.
 - Readiness responses include a safe `summary` with boot status, DB status, config issue counts, email mode, session/CORS posture, worker expectations, and media pipeline availability. Structured logs use `event=...` fields and redact secret-shaped keys before writing.
@@ -203,6 +205,8 @@ npm run staging:frontend -- --env-file .env.staging --build
 ```
 
 - `staging:worker` should be used only when `MEDIA_RENDER_WORKER_MODE=external`. The worker wrapper validates that startup assumption before it launches the process.
+
+For the fixed free-tier launch topology, see [docs/render-free-deployment.md](docs/render-free-deployment.md). It defines one Render Free web process with the embedded dispatcher, durable private Supabase Storage, manual Alembic release operations, and the later Vercel environment handoff. Render local files are not durable, and scene/narration packages are ZIP files rather than encoded MP4 video.
 - The new ops aliases keep the same runtime behavior but make the operational path easier to remember:
 
 ```powershell

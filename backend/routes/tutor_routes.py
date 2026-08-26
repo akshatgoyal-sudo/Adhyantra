@@ -12,6 +12,13 @@ from backend.db import get_db
 from backend.schemas import AudioRenderRequest, DoubtRequest, DoubtResponse, ExplainRequest, ExplainResponse, LessonExportRequest, MediaRenderJobResponse, MediaRenderType, VideoRenderRequest
 from backend.services.analytics_service import record_analytics_event_safe
 from backend.services.auth_service import get_current_auth_context, resolve_authenticated_study_preferences
+from backend.services.durable_media_storage_service import (
+    MediaStorageObjectMissingError,
+    MediaStorageProviderError,
+    RetrievedMediaArtifact,
+    is_supabase_media_reference,
+    retrieve_media_artifact,
+)
 from backend.services.lesson_export_service import (
     build_audio_script_export_payload,
     build_lesson_export_asset,
@@ -177,8 +184,19 @@ def _resolve_downloadable_render_asset_or_raise(
         )
         raise HTTPException(status_code=410, detail=_render_download_expired_message(job))
 
-    asset_path = resolve_media_render_asset_path(job)
-    if asset_path is None:
+    try:
+        if is_supabase_media_reference(job.output_asset_path):
+            artifact = retrieve_media_artifact(job.output_asset_path, settings=get_settings())
+        else:
+            local_path = resolve_media_render_asset_path(job)
+            if local_path is None:
+                raise MediaStorageObjectMissingError(
+                    "storage_object_missing",
+                    "The requested media object was not found.",
+                    status_code=404,
+                )
+            artifact = RetrievedMediaArtifact("local", local_path=local_path)
+    except MediaStorageObjectMissingError:
         mark_media_render_artifact_deleted(
             db,
             job=job,
@@ -192,9 +210,43 @@ def _resolve_downloadable_render_asset_or_raise(
             status_code=410,
         )
         raise HTTPException(status_code=410, detail=_render_download_expired_message(job))
+    except MediaStorageProviderError as exc:
+        _record_render_download_unavailable_event(
+            db,
+            user_id=user_id,
+            job=job,
+            reason=exc.reason,
+            status_code=503,
+        )
+        raise HTTPException(status_code=503, detail="Media storage is temporarily unavailable. Please try again.") from exc
 
     mark_media_render_artifact_downloaded(db, job=job)
-    return asset_path
+    return artifact
+
+
+def _safe_render_filename(job, artifact: RetrievedMediaArtifact) -> str:
+    fallback_name = artifact.local_path.name if artifact.local_path is not None else "adhyantra-media-render.zip"
+    candidate = str(job.output_asset_filename or fallback_name).replace("\r", "").replace("\n", "")
+    candidate = candidate.replace('"', "").replace("\\", "-").replace("/", "-")
+    return candidate[:255] or fallback_name
+
+
+def _render_artifact_response(job, artifact: RetrievedMediaArtifact):
+    filename = _safe_render_filename(job, artifact)
+    headers = _render_download_headers(job)
+    if artifact.local_path is not None:
+        return FileResponse(
+            path=artifact.local_path,
+            media_type=job.output_content_type or "application/octet-stream",
+            filename=filename,
+            headers=headers,
+        )
+    headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return Response(
+        content=artifact.content or b"",
+        media_type=job.output_content_type or "application/octet-stream",
+        headers=headers,
+    )
 
 
 def _enqueue_render_job_or_raise(request: Request, db: Session, *, job) -> None:
@@ -606,14 +658,14 @@ def get_video_render_status_route(job_id: int, request: Request, db: Session = D
 
 
 @router.get("/render/audio/{job_id}/download")
-def download_audio_render_route(job_id: int, request: Request, db: Session = Depends(get_db)) -> FileResponse:
+def download_audio_render_route(job_id: int, request: Request, db: Session = Depends(get_db)) -> Response:
     auth_context = get_current_auth_context(db, request)
     user = _require_authenticated_user(auth_context)
     job = get_media_render_job_for_user(db, job_id=job_id, user_id=user.id)
     if job is None or job.render_type != "audio":
         raise HTTPException(status_code=404, detail="Audio render job not found.")
 
-    asset_path = _resolve_downloadable_render_asset_or_raise(
+    artifact = _resolve_downloadable_render_asset_or_raise(
         db,
         job=job,
         user_id=user.id,
@@ -643,23 +695,18 @@ def download_audio_render_route(job_id: int, request: Request, db: Session = Dep
             "asset_file_size_bytes": job.output_file_size_bytes,
         },
     )
-    return FileResponse(
-        path=asset_path,
-        media_type=job.output_content_type or "application/octet-stream",
-        filename=job.output_asset_filename or asset_path.name,
-        headers=_render_download_headers(job),
-    )
+    return _render_artifact_response(job, artifact)
 
 
 @router.get("/render/video/{job_id}/download")
-def download_video_render_route(job_id: int, request: Request, db: Session = Depends(get_db)) -> FileResponse:
+def download_video_render_route(job_id: int, request: Request, db: Session = Depends(get_db)) -> Response:
     auth_context = get_current_auth_context(db, request)
     user = _require_authenticated_user(auth_context)
     job = get_media_render_job_for_user(db, job_id=job_id, user_id=user.id)
     if job is None or job.render_type not in {"narrated_video", "slide_video"}:
         raise HTTPException(status_code=404, detail="Video render job not found.")
 
-    asset_path = _resolve_downloadable_render_asset_or_raise(
+    artifact = _resolve_downloadable_render_asset_or_raise(
         db,
         job=job,
         user_id=user.id,
@@ -689,12 +736,7 @@ def download_video_render_route(job_id: int, request: Request, db: Session = Dep
             "asset_file_size_bytes": job.output_file_size_bytes,
         },
     )
-    return FileResponse(
-        path=asset_path,
-        media_type=job.output_content_type or "application/octet-stream",
-        filename=job.output_asset_filename or asset_path.name,
-        headers=_render_download_headers(job),
-    )
+    return _render_artifact_response(job, artifact)
 
 
 @router.post("/doubt", response_model=DoubtResponse)

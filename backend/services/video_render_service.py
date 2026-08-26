@@ -17,6 +17,12 @@ from backend.config import Settings, get_settings
 from backend.models import MediaRenderJob
 from backend.schemas import AudioScriptExportPayload
 from backend.services.lesson_export_service import build_audio_script_export_payload
+from backend.services.durable_media_storage_service import (
+    MediaStorageObjectTooLargeError,
+    MediaStorageProviderError,
+    cleanup_media_working_directory,
+    persist_media_artifact,
+)
 from backend.services.media_render_service import (
     build_transient_media_render_retry_after,
     compute_media_render_artifact_retention_expires_at,
@@ -523,15 +529,53 @@ def render_scene_video_job_from_lesson(
             status_note="Scene rendering could not complete.",
         )
 
+    try:
+        stored_artifact = persist_media_artifact(
+            running_job,
+            archive_path,
+            content_type=content_type,
+            settings=active_settings,
+            http_client_factory=http_client_factory,
+        )
+    except MediaStorageObjectTooLargeError:
+        cleanup_media_working_directory(archive_path.parent, active_settings)
+        return mark_media_render_job_failed(
+            db,
+            job=running_job,
+            failure_code="media_artifact_too_large",
+            failure_message="Generated scene package exceeded the configured storage limit.",
+            status_note="Scene package is too large to store.",
+        )
+    except MediaStorageProviderError as exc:
+        cleanup_media_working_directory(archive_path.parent, active_settings)
+        if worker_retries_enabled and exc.retryable:
+            return mark_media_render_job_retryable_failed(
+                db,
+                job=running_job,
+                failure_code=exc.reason,
+                failure_message="Durable media storage was temporarily unavailable.",
+                retry_after_at=build_transient_media_render_retry_after(running_job.attempt_count),
+                status_note="Scene package storage was interrupted. Trying again soon.",
+                terminal_status_note="Video generation could not complete after a few tries. Please try again.",
+            )
+        return mark_media_render_job_failed(
+            db,
+            job=running_job,
+            failure_code=exc.reason,
+            failure_message="Durable media storage could not accept the generated package.",
+            status_note="Scene package could not be stored.",
+        )
+    cleanup_media_working_directory(archive_path.parent, active_settings)
+
     success_note = "Narrated scene package is ready." if running_job.render_type == "narrated_video" else "Scene package is ready."
     return mark_media_render_job_succeeded(
         db,
         job=running_job,
         output_metadata=metadata,
         output_asset_filename=archive_filename,
-        output_asset_path=relative_media_render_asset_path(archive_path, settings=active_settings),
+        output_asset_path=stored_artifact.reference,
         output_content_type=content_type,
-        output_file_size_bytes=file_size_bytes,
+        output_file_size_bytes=stored_artifact.file_size_bytes,
         artifact_retention_expires_at=compute_media_render_artifact_retention_expires_at(settings=active_settings),
         status_note=success_note,
     )

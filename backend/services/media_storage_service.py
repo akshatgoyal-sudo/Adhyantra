@@ -28,7 +28,7 @@ def _configured_media_storage_scheme(settings: Settings) -> str | None:
 
 def media_render_storage_uses_local_filesystem(settings: Settings | None = None) -> bool:
     active_settings = settings or get_settings()
-    return _configured_media_storage_scheme(active_settings) is None
+    return active_settings.effective_media_storage_backend == "local" and _configured_media_storage_scheme(active_settings) is None
 
 
 def _normalize_local_path(path: Path) -> Path:
@@ -56,6 +56,20 @@ def _local_media_render_storage_root(settings: Settings) -> Path:
 
 def initialize_media_render_storage(settings: Settings | None = None) -> Path:
     active_settings = settings or get_settings()
+    if active_settings.effective_media_storage_backend == "supabase":
+        from backend.services.durable_media_storage_service import (
+            MediaStorageProviderError,
+            validate_supabase_storage_configuration,
+        )
+
+        try:
+            validate_supabase_storage_configuration(active_settings)
+        except MediaStorageProviderError as exc:
+            raise MediaStorageInitializationError(
+                exc.reason,
+                str(exc),
+                error_type=type(exc).__name__,
+            ) from exc
     root = _local_media_render_storage_root(active_settings)
     try:
         if root.exists() and not root.is_dir():
@@ -96,6 +110,8 @@ def get_media_render_storage_availability(
     settings: Settings | None = None,
     *,
     create: bool = False,
+    http_client_factory=None,
+    inspect_remote: bool = True,
 ) -> dict[str, Any]:
     active_settings = settings or get_settings()
     scheme = _configured_media_storage_scheme(active_settings)
@@ -157,6 +173,19 @@ def get_media_render_storage_availability(
         reason = None
         ready = True
 
+    if ready and inspect_remote and active_settings.effective_media_storage_backend == "supabase":
+        from backend.services.durable_media_storage_service import inspect_private_supabase_bucket
+
+        remote = inspect_private_supabase_bucket(
+            active_settings,
+            http_client_factory=http_client_factory,
+        )
+        ready = bool(remote.get("ready"))
+        reason = remote.get("reason")
+        error_type = remote.get("error_type")
+    else:
+        error_type = None
+
     return {
         "ready": ready,
         "reason": reason,
@@ -166,14 +195,12 @@ def get_media_render_storage_availability(
         "root_is_directory": root_is_directory,
         "parent_exists": parent_exists,
         "parent_is_directory": parent_is_directory,
-        "error_type": None,
-        "storage_backend": "filesystem",
+        "error_type": error_type,
+        "storage_backend": active_settings.effective_media_storage_backend,
     }
 
 
 def media_render_output_dir_is_relative_to_project(settings: Settings | None = None) -> bool:
-    if not media_render_storage_uses_local_filesystem(settings):
-        return False
     root = get_media_render_storage_root(settings)
     try:
         root.relative_to(_normalize_local_path(PROJECT_ROOT.resolve()))

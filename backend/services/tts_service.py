@@ -17,6 +17,12 @@ from backend.config import Settings, get_settings
 from backend.models import MediaRenderJob
 from backend.schemas import AudioScriptExportPayload, AudioScriptExportSegment
 from backend.services.lesson_export_service import build_audio_script_export_payload
+from backend.services.durable_media_storage_service import (
+    MediaStorageObjectTooLargeError,
+    MediaStorageProviderError,
+    cleanup_media_working_directory,
+    persist_media_artifact,
+)
 from backend.services.media_render_service import (
     build_transient_media_render_retry_after,
     compute_media_render_artifact_retention_expires_at,
@@ -472,14 +478,52 @@ def render_audio_job_from_audio_script(
             status_note="Audio generation could not complete.",
         )
 
+    try:
+        stored_artifact = persist_media_artifact(
+            running_job,
+            bundle.archive_path,
+            content_type=bundle.archive_content_type,
+            settings=active_settings,
+            http_client_factory=http_client_factory,
+        )
+    except MediaStorageObjectTooLargeError:
+        cleanup_media_working_directory(bundle.archive_path.parent, active_settings)
+        return mark_media_render_job_failed(
+            db,
+            job=running_job,
+            failure_code="media_artifact_too_large",
+            failure_message="Generated audio package exceeded the configured storage limit.",
+            status_note="Audio package is too large to store.",
+        )
+    except MediaStorageProviderError as exc:
+        cleanup_media_working_directory(bundle.archive_path.parent, active_settings)
+        if worker_retries_enabled and exc.retryable:
+            return mark_media_render_job_retryable_failed(
+                db,
+                job=running_job,
+                failure_code=exc.reason,
+                failure_message="Durable media storage was temporarily unavailable.",
+                retry_after_at=build_transient_media_render_retry_after(running_job.attempt_count),
+                status_note="Audio storage was interrupted. Trying again soon.",
+                terminal_status_note="Audio generation could not complete after a few tries. Please try again.",
+            )
+        return mark_media_render_job_failed(
+            db,
+            job=running_job,
+            failure_code=exc.reason,
+            failure_message="Durable media storage could not accept the generated package.",
+            status_note="Audio package could not be stored.",
+        )
+    cleanup_media_working_directory(bundle.archive_path.parent, active_settings)
+
     return mark_media_render_job_succeeded(
         db,
         job=running_job,
         output_metadata=bundle.metadata,
         output_asset_filename=bundle.archive_filename,
-        output_asset_path=bundle.archive_relative_path,
+        output_asset_path=stored_artifact.reference,
         output_content_type=bundle.archive_content_type,
-        output_file_size_bytes=bundle.archive_size_bytes,
+        output_file_size_bytes=stored_artifact.file_size_bytes,
         artifact_retention_expires_at=compute_media_render_artifact_retention_expires_at(settings=active_settings),
         status_note="Audio is ready to download.",
     )
