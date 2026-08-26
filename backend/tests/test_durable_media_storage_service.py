@@ -7,6 +7,7 @@ import pytest
 from backend.config import Settings
 from backend.services.durable_media_storage_service import (
     MediaStorageObjectTooLargeError,
+    MediaStorageObjectMissingError,
     MediaStorageProviderError,
     cleanup_media_working_directory,
     delete_media_artifact,
@@ -118,6 +119,17 @@ def test_oversize_and_timeout_are_sanitized_and_cleanup_temp_files(tmp_path):
     assert "project.invalid" not in str(captured.value)
     cleanup_media_working_directory(bundle_dir, settings)
     assert not bundle_dir.exists()
+
+
+def test_supabase_missing_object_envelope_is_classified_as_missing(tmp_path):
+    settings = _settings(tmp_path)
+    reference = "supabase://private-media/production/users/audit/jobs/missing/object.zip"
+    response_factory = _factory(
+        lambda request: httpx.Response(400, json={"statusCode": "404", "error": "not_found"})
+    )
+    with pytest.raises(MediaStorageObjectMissingError) as captured:
+        retrieve_media_artifact(reference, settings=settings, http_client_factory=response_factory)
+    assert captured.value.status_code == 404
 
 
 def test_local_backend_preserves_relative_reference_and_files(tmp_path):

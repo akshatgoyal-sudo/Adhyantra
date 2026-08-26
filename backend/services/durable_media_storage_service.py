@@ -77,7 +77,14 @@ def _headers(settings: Settings, *, content_type: str | None = None) -> dict[str
 
 def _response_error(response: httpx.Response, *, missing_reason: str = "storage_object_missing") -> MediaStorageProviderError:
     status_code = int(response.status_code)
-    if status_code == 404:
+    provider_status_code = None
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            provider_status_code = int(payload.get("statusCode")) if payload.get("statusCode") is not None else None
+    except (TypeError, ValueError):
+        provider_status_code = None
+    if status_code == 404 or provider_status_code == 404:
         return MediaStorageObjectMissingError(missing_reason, "The requested media object was not found.", status_code=404)
     if status_code in {401, 403}:
         return MediaStorageProviderError("storage_authentication_failed", "Media storage authentication failed.", status_code=status_code)
