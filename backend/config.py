@@ -1150,7 +1150,7 @@ class Settings:
     payment_razorpay_webhook_secret: str = field(default_factory=lambda: _env("PAYMENT_RAZORPAY_WEBHOOK_SECRET", ""))
     payment_razorpay_base_url: str = field(default_factory=lambda: _env("PAYMENT_RAZORPAY_BASE_URL", DEFAULT_PAYMENT_RAZORPAY_BASE_URL))
     payment_razorpay_total_count: int = field(default_factory=lambda: _env_int("PAYMENT_RAZORPAY_TOTAL_COUNT", 12))
-    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash"))
+    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-3.6-flash"))
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY", ""))
     gemini_base_url: str = field(default_factory=lambda: _env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"))
     groq_model: str = field(default_factory=lambda: _env("GROQ_MODEL", "llama-3.1-8b-instant"))
@@ -1214,8 +1214,6 @@ class Settings:
         if configured:
             return _dedupe_values(configured)
         primary = self.provider_name
-        if primary == "gemini":
-            return ("gemini", "groq")
         if primary in AI_PROVIDER_NAMES:
             return (primary,)
         return (primary,)
@@ -2232,7 +2230,7 @@ class Settings:
                         policy.mock_ai_issue_severity,
                         "ai",
                         "mock_ai_in_production" if policy.production else "mock_ai_in_staging",
-                        "Deployed environments should configure a live provider chain such as AI_PROVIDER_CHAIN=gemini,groq with provider API keys, or set ALLOW_MOCK_AI_IN_PRODUCTION=true intentionally.",
+                        "Deployed environments should configure an explicitly verified live AI_PROVIDER_CHAIN with the corresponding provider API keys, or set ALLOW_MOCK_AI_IN_PRODUCTION=true intentionally.",
                     )
                 if not self.live_ai_provider_available and self.allow_mock_ai_in_production:
                     add_issue("warning", "ai", "mock_ai_explicitly_allowed", "Mock AI is explicitly allowed in this deployed environment.")

@@ -15,10 +15,10 @@ def _production_settings(**overrides) -> Settings:
     values = {
         "app_env": "production",
         "ai_provider": "gemini",
-        "ai_provider_chain": "gemini,groq",
+        "ai_provider_chain": "gemini",
         "allow_mock_ai_in_production": False,
         "gemini_api_key": "unit-test-gemini-material",
-        "gemini_model": "gemini-2.5-flash",
+        "gemini_model": "gemini-3.6-flash",
         "groq_api_key": "unit-test-groq-material",
         "groq_model": "llama-3.1-8b-instant",
         "db_url": "postgresql://db.invalid/adhyantra_test",
@@ -53,8 +53,8 @@ def _production_settings(**overrides) -> Settings:
 def test_production_live_chain_remains_exact_and_mock_is_not_appended() -> None:
     settings = _production_settings()
 
-    assert settings.configured_ai_provider_chain == ("gemini", "groq")
-    assert settings.effective_ai_provider_chain == ("gemini", "groq")
+    assert settings.configured_ai_provider_chain == ("gemini",)
+    assert settings.effective_ai_provider_chain == ("gemini",)
     assert settings.mock_ai_runtime_allowed is False
     assert settings.validate_runtime_config().ok is True
 
@@ -67,11 +67,18 @@ def test_production_rejects_explicit_mock_provider_or_chain() -> None:
     assert "mock_ai_forbidden_in_production_chain" in {issue.code for issue in fallback_result.errors}
 
 
+def test_implicit_gemini_chain_does_not_retain_unverified_fallback() -> None:
+    settings = _production_settings(ai_provider_chain="")
+
+    assert settings.configured_ai_provider_chain == ("gemini",)
+    assert settings.effective_ai_provider_chain == ("gemini",)
+
+
 def test_total_live_provider_failure_is_sanitized_and_never_builds_mock_content(monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingLiveRouter:
         provider_name = "router"
-        last_attempted_provider_names = ["gemini", "groq"]
-        last_fallback_used = True
+        last_attempted_provider_names = ["gemini"]
+        last_fallback_used = False
         last_fallback_reason = "provider URL key=should-not-escape"
 
         def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict:
@@ -80,8 +87,8 @@ def test_total_live_provider_failure_is_sanitized_and_never_builds_mock_content(
                 provider_metadata={
                     "provider_name": "live_ai",
                     "model_name": None,
-                    "attempted_provider_chain": ["gemini", "groq"],
-                    "provider_fallback_used": True,
+                    "attempted_provider_chain": ["gemini"],
+                    "provider_fallback_used": False,
                     "provider_fallback_reason": "key=should-not-escape",
                 },
             )
@@ -105,7 +112,7 @@ def test_total_live_provider_failure_is_sanitized_and_never_builds_mock_content(
 
     for error in (explanation_error.value, quiz_error.value):
         assert error.status_code == 503
-        assert error.attempted_provider_chain == ("gemini", "groq")
+        assert error.attempted_provider_chain == ("gemini",)
         assert str(error) == "AI generation is temporarily unavailable. Please try again."
         assert "should-not-escape" not in str(error)
         assert "private full prompt text" not in str(error)
@@ -123,7 +130,7 @@ def test_development_explicit_mock_remains_available() -> None:
 def test_text_and_tts_model_defaults_are_current_and_distinct() -> None:
     settings = Settings()
 
-    assert settings.gemini_model == "gemini-2.5-flash"
+    assert settings.gemini_model == "gemini-3.6-flash"
     assert settings.groq_model == "llama-3.1-8b-instant"
     assert settings.tts_gemini_model == "gemini-2.5-flash-preview-tts"
     assert settings.tts_gemini_model != settings.gemini_model
@@ -182,10 +189,10 @@ def test_render_blueprint_uses_strict_live_ai_gmail_and_disabled_payments() -> N
     env = {item["key"]: item for item in service["envVars"]}
 
     assert env["AI_PROVIDER"]["value"] == "gemini"
-    assert env["AI_PROVIDER_CHAIN"]["value"] == "gemini,groq"
+    assert env["AI_PROVIDER_CHAIN"]["value"] == "gemini"
     assert env["ALLOW_MOCK_AI_IN_PRODUCTION"]["value"] == "false"
-    assert env["GEMINI_MODEL"]["value"] == "gemini-2.5-flash"
-    assert env["GROQ_MODEL"]["value"] == "llama-3.1-8b-instant"
+    assert env["GEMINI_MODEL"]["value"] == "gemini-3.6-flash"
+    assert "GROQ_MODEL" not in env
     assert env["EMAIL_TRANSPORT"]["value"] == "smtp"
     assert env["SMTP_HOST"]["value"] == "smtp.gmail.com"
     assert env["SMTP_PORT"]["value"] == "587"
@@ -194,7 +201,7 @@ def test_render_blueprint_uses_strict_live_ai_gmail_and_disabled_payments() -> N
     assert env["PAYMENT_PROVIDER"]["value"] == "disabled"
     assert "RESEND_API_KEY" not in env
     assert env["GEMINI_API_KEY"] == {"key": "GEMINI_API_KEY", "sync": False}
-    assert env["GROQ_API_KEY"] == {"key": "GROQ_API_KEY", "sync": False}
+    assert "GROQ_API_KEY" not in env
     assert env["SMTP_USERNAME"] == {"key": "SMTP_USERNAME", "sync": False}
     assert env["SMTP_PASSWORD"] == {"key": "SMTP_PASSWORD", "sync": False}
     serialized = (PROJECT_ROOT / "render.yaml").read_text(encoding="utf-8").lower()

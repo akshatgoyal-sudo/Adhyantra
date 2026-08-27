@@ -247,7 +247,7 @@ def _parse_json_text(content: str) -> Dict[str, Any]:
 def _gemini_model_path(model: str) -> str:
     cleaned_model = str(model or "").strip().strip("/")
     if not cleaned_model:
-        cleaned_model = "gemini-2.5-flash"
+        cleaned_model = "gemini-3.6-flash"
     if cleaned_model.startswith("models/"):
         return quote(cleaned_model, safe="/")
     return f"models/{quote(cleaned_model, safe='')}"

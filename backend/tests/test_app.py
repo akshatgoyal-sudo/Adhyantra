@@ -3673,7 +3673,7 @@ def test_mistral_is_testing_only_and_not_in_default_live_chain() -> None:
         mistral_api_key="mistral-key",
     )
 
-    assert default_live_settings.effective_ai_provider_chain == ("gemini", "groq", "mock")
+    assert default_live_settings.effective_ai_provider_chain == ("gemini", "mock")
     assert "mistral" not in default_live_settings.effective_ai_provider_chain
     assert qa_settings.validate_runtime_config().ok is True
     assert qa_settings.effective_ai_provider_chain == ("mistral", "mock")

@@ -72,13 +72,11 @@ services:
       - key: AI_PROVIDER
         value: gemini
       - key: AI_PROVIDER_CHAIN
-        value: gemini,groq
+        value: gemini
       - key: ALLOW_MOCK_AI_IN_PRODUCTION
         value: "false"
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
-      - key: GROQ_MODEL
-        value: llama-3.1-8b-instant
+        value: gemini-3.6-flash
       - key: PAYMENT_PROVIDER
         value: disabled
       - key: ALLOW_SQLITE_IN_PRODUCTION
@@ -106,6 +104,4 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: GEMINI_API_KEY
-        sync: false
-      - key: GROQ_API_KEY
         sync: false

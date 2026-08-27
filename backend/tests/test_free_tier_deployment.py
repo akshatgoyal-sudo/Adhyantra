@@ -31,16 +31,17 @@ def test_render_blueprint_is_one_free_embedded_web_service():
     assert env["SUPABASE_SERVICE_ROLE_KEY"] == {"key": "SUPABASE_SERVICE_ROLE_KEY", "sync": False}
     assert env["TTS_PROVIDER"]["value"] == "gemini"
     assert env["TTS_GEMINI_MODEL"]["value"] == "gemini-2.5-flash-preview-tts"
-    assert env["AI_PROVIDER_CHAIN"]["value"] == "gemini,groq"
+    assert env["AI_PROVIDER_CHAIN"]["value"] == "gemini"
     assert env["ALLOW_MOCK_AI_IN_PRODUCTION"]["value"] == "false"
-    assert env["GEMINI_MODEL"]["value"] == "gemini-2.5-flash"
-    assert env["GROQ_MODEL"]["value"] == "llama-3.1-8b-instant"
+    assert env["GEMINI_MODEL"]["value"] == "gemini-3.6-flash"
+    assert "GROQ_MODEL" not in env
     assert env["EMAIL_TRANSPORT"]["value"] == "smtp"
     assert env["SMTP_HOST"]["value"] == "smtp.gmail.com"
     assert env["SMTP_PASSWORD"] == {"key": "SMTP_PASSWORD", "sync": False}
     assert env["PAYMENT_PROVIDER"]["value"] == "disabled"
     assert "RESEND_API_KEY" not in env
     assert env["GEMINI_API_KEY"] == {"key": "GEMINI_API_KEY", "sync": False}
+    assert "GROQ_API_KEY" not in env
     assert "TTS_OPENAI_API_KEY" not in env
     assert all("NEXT_PUBLIC" not in key for key in env if "GEMINI" in key)
 

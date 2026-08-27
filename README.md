@@ -38,7 +38,7 @@ No environment variable is required for the safe local default: it uses SQLite, 
 Conditionally required names:
 
 - PostgreSQL: `EXAM_GURU_DB_URL`
-- Gemini/Groq live AI: `GEMINI_API_KEY`, `GROQ_API_KEY`
+- Verified free-tier launch AI: `GEMINI_API_KEY` (Gemini 3.6 Flash). `GROQ_API_KEY` remains an optional non-launch provider setting.
 - SMTP OTP: `EMAIL_FROM_ADDRESS`, `SMTP_HOST`; `SMTP_USERNAME` and `SMTP_PASSWORD` when the server requires authentication
 - Resend OTP: `EMAIL_FROM_ADDRESS`, `RESEND_API_KEY`
 - Stripe billing: `PAYMENT_PROVIDER`, `PAYMENT_PREMIUM_PRICE_ID`, `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`
@@ -60,9 +60,9 @@ Supported variables:
 - `APP_ENV`: defaults to `development`. Supported canonical environments are `development`, `test`, `staging`, and `production`; aliases such as `dev`, `local`, `testing`, `stage`, and `prod` are normalized internally.
 - `APP_VERSION`, `RELEASE_COMMIT`, `DEPLOYMENT_ID`: optional release metadata surfaced safely through health/readiness responses.
 - `AI_PROVIDER`: `mock` by default. Use `gemini` for the primary live path, `groq` for the fallback live path, or `mistral` only for explicit local QA/testing.
-- `AI_PROVIDER_CHAIN`: comma-separated provider route. The production chain is `gemini,groq`; when `ALLOW_MOCK_AI_IN_PRODUCTION=false`, production preserves that exact live-only chain and rejects explicit `mock`. Development and tests continue to append or select mock explicitly. Do not include `mistral` in staging or production chains.
+- `AI_PROVIDER_CHAIN`: comma-separated provider route. The verified free-tier production chain is `gemini`; when `ALLOW_MOCK_AI_IN_PRODUCTION=false`, production preserves that exact live-only chain and rejects explicit `mock`. Development and tests continue to append or select mock explicitly. Do not include `mistral` in staging or production chains.
 - `GEMINI_MODEL`, `GEMINI_API_KEY`, `GEMINI_BASE_URL`: primary Gemini provider settings.
-- `GROQ_MODEL`, `GROQ_API_KEY`, `GROQ_BASE_URL`: Groq fallback provider settings. Groq uses the shared OpenAI-compatible chat path.
+- `GROQ_MODEL`, `GROQ_API_KEY`, `GROQ_BASE_URL`: optional Groq provider settings. Groq uses the shared OpenAI-compatible chat path but is not in the verified free-tier launch chain.
 - `MISTRAL_MODEL`, `MISTRAL_API_KEY`, `MISTRAL_BASE_URL`: testing-only Mistral provider settings for QA/comparison runs. Deployed config validation rejects `mistral` in staging or production provider chains.
 - `OPENAI_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`: backward-compatible OpenAI provider settings. The backend posts OpenAI-compatible providers to `/chat/completions`.
 - `EXAM_GURU_DB_URL`: defaults to the project-root SQLite file `./exam_guru.db`.
@@ -108,9 +108,9 @@ Deployment config validation runs at backend startup when `APP_ENV=staging` or `
 
 Internal compatibility note: a few env var names, cookie names, and local database files intentionally still use `EXAM_GURU_*` or `exam_guru` identifiers. They are runtime compatibility surfaces, not user-facing branding, and should only be renamed in a coordinated migration.
 
-If `AI_PROVIDER=gemini` and `AI_PROVIDER_CHAIN` is left empty, the backend starts from the Gemini-to-Groq route. In strict production, Gemini failure moves to Groq and exhaustion returns a sanitized HTTP 503 without fabricated content or success accounting. Development and tests retain explicit mock fallback for deterministic local work.
+If `AI_PROVIDER=gemini` and `AI_PROVIDER_CHAIN` is left empty, the backend uses Gemini only. In strict production, Gemini exhaustion returns a sanitized HTTP 503 without fabricated content or success accounting. Development and tests retain explicit mock fallback for deterministic local work.
 
-The normal live provider chain uses the names `AI_PROVIDER`, `AI_PROVIDER_CHAIN`, `GEMINI_API_KEY`, and `GROQ_API_KEY`. Mistral remains local QA/testing-only. Use `.env.example` as the authoritative name/default reference rather than copying credentials from documentation.
+The verified launch chain uses `AI_PROVIDER=gemini`, `AI_PROVIDER_CHAIN=gemini`, `GEMINI_MODEL=gemini-3.6-flash`, and `GEMINI_API_KEY`. A controlled check on 2026-08-27 found that `gemini-2.5-flash` was advertised by model discovery but returned a provider-side 404 for this project, so it is not used by the launch configuration. Groq also returned a provider-side 404 in its single authorized launch check and is not requested by `render.yaml`. Mistral remains local QA/testing-only. Use `.env.example` as the authoritative name/default reference rather than copying credentials from documentation.
 
 ## Backend setup
 
