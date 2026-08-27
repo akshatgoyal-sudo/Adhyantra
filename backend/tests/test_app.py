@@ -11461,8 +11461,12 @@ def test_ai_service_uses_gemini_provider_for_explain_doubt_and_quiz(monkeypatch)
     assert len(quiz["questions"]) == 5
     urls = [str(item["url"]) for item in captured_requests if "url" in item]
     assert urls
-    assert all("/models/gemini-test:generateContent?key=" in url for url in urls)
+    assert all(url.endswith("/models/gemini-test:generateContent") for url in urls)
+    assert all("gemini-key" not in url for url in urls)
     assert all("models/models" not in url for url in urls)
+    headers = [item["headers"] for item in captured_requests if "headers" in item]
+    assert headers
+    assert all(header["x-goog-api-key"] == "gemini-key" for header in headers)
     request_payload = next(item["payload"] for item in captured_requests if "payload" in item)
     assert request_payload["generationConfig"]["candidateCount"] == 1
     assert request_payload["generationConfig"]["responseMimeType"] == "application/json"

@@ -130,7 +130,7 @@ class GeminiProvider:
 
     def generate_json(self, *, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         model_path = _gemini_model_path(self.model)
-        endpoint = f"{self.base_url.rstrip('/')}/{model_path}:generateContent?key={self.api_key}"
+        endpoint = f"{self.base_url.rstrip('/')}/{model_path}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
@@ -140,7 +140,7 @@ class GeminiProvider:
                 "responseMimeType": "application/json",
             },
         }
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
 
         try:
             with httpx.Client(timeout=self.timeout_seconds) as client:
