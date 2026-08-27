@@ -77,7 +77,7 @@ _TEST_ENVIRONMENT = {
     "PAYMENT_RAZORPAY_WEBHOOK_SECRET": "",
     "PAYMENT_RAZORPAY_BASE_URL": "https://api.razorpay.com/v1",
     "PAYMENT_RAZORPAY_TOTAL_COUNT": "12",
-    "GEMINI_MODEL": "gemini-1.5-flash",
+    "GEMINI_MODEL": "gemini-2.5-flash",
     "GEMINI_API_KEY": "",
     "GEMINI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta",
     "GROQ_MODEL": "llama-3.1-8b-instant",

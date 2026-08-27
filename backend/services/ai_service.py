@@ -22,6 +22,21 @@ from backend.services.knowledge_service import clean_bullets, extract_keywords, 
 logger = logging.getLogger(__name__)
 
 
+class AIServiceUnavailableError(RuntimeError):
+    """Raised when strict live-only AI generation cannot produce a response."""
+
+    status_code = 503
+    public_detail = "AI generation is temporarily unavailable. Please try again."
+
+    def __init__(self, *, attempted_provider_chain: list[str] | None = None) -> None:
+        super().__init__(self.public_detail)
+        self.attempted_provider_chain = tuple(
+            provider
+            for provider in (str(item or "").strip() for item in (attempted_provider_chain or []))
+            if provider and provider != "mock"
+        )
+
+
 ABSURD_OPTION_FRAGMENTS = (
     "no connection with the constitution",
     "relevant only for geography questions",
@@ -781,7 +796,8 @@ class AIService:
         self.settings = settings or get_settings()
         self._provider_unavailable_reasons: list[str] = []
         self.provider = provider or self._build_provider()
-        self.mock_mode = self.provider is None
+        self.mock_fallback_allowed = self.settings.mock_ai_runtime_allowed
+        self.mock_mode = self.provider is None and self.mock_fallback_allowed
         self.provider_chain = list(self.settings.effective_ai_provider_chain)
         self._random = Random(7)
 
@@ -803,18 +819,24 @@ class AIService:
         normalized_teaching_pacing = _normalize_teaching_pacing(teaching_pacing)
         normalized_conceptual_density = _normalize_conceptual_density(conceptual_density)
         normalized_lesson_mode = _normalize_lesson_mode(lesson_mode)
-        fallback = self.default_explanation_response(
-            topic=topic,
-            context=context,
-            explanation_depth=normalized_explanation_depth,
-            teaching_mode=normalized_teaching_mode,
-            teaching_support=normalized_teaching_support,
-            teaching_pacing=normalized_teaching_pacing,
-            conceptual_density=normalized_conceptual_density,
-            teaching_profile_note=teaching_profile_note,
+        fallback = (
+            self.default_explanation_response(
+                topic=topic,
+                context=context,
+                explanation_depth=normalized_explanation_depth,
+                teaching_mode=normalized_teaching_mode,
+                teaching_support=normalized_teaching_support,
+                teaching_pacing=normalized_teaching_pacing,
+                conceptual_density=normalized_conceptual_density,
+                teaching_profile_note=teaching_profile_note,
+            )
+            if self.mock_fallback_allowed
+            else None
         )
         if self.provider is None:
-            return fallback
+            if fallback is not None:
+                return fallback
+            raise self._service_unavailable_error()
 
         depth_instruction = self._explanation_depth_instruction(normalized_explanation_depth)
         teaching_mode_instruction = self._teaching_mode_instruction(normalized_teaching_mode)
@@ -875,24 +897,30 @@ class AIService:
         normalized_teaching_pacing = _normalize_teaching_pacing(teaching_pacing)
         normalized_conceptual_density = _normalize_conceptual_density(conceptual_density)
         subject_label = str(subject or "general subject").replace("_", " ").title()
-        fallback = self.default_doubt_response(
-            topic=resolved_topic,
-            question=question,
-            context=context,
-            subject=subject,
-            selected_topic=normalized_selected_topic,
-            grounding_context=normalized_grounding_context,
-            misconception_signal=normalized_misconception_signal,
-            misconception_reason=normalized_misconception_reason,
-            what_to_remember=normalized_what_to_remember,
-            explanation_depth=normalized_explanation_depth,
-            teaching_mode=normalized_teaching_mode,
-            teaching_support=normalized_teaching_support,
-            teaching_pacing=normalized_teaching_pacing,
-            conceptual_density=normalized_conceptual_density,
+        fallback = (
+            self.default_doubt_response(
+                topic=resolved_topic,
+                question=question,
+                context=context,
+                subject=subject,
+                selected_topic=normalized_selected_topic,
+                grounding_context=normalized_grounding_context,
+                misconception_signal=normalized_misconception_signal,
+                misconception_reason=normalized_misconception_reason,
+                what_to_remember=normalized_what_to_remember,
+                explanation_depth=normalized_explanation_depth,
+                teaching_mode=normalized_teaching_mode,
+                teaching_support=normalized_teaching_support,
+                teaching_pacing=normalized_teaching_pacing,
+                conceptual_density=normalized_conceptual_density,
+            )
+            if self.mock_fallback_allowed
+            else None
         )
         if self.provider is None:
-            return fallback
+            if fallback is not None:
+                return fallback
+            raise self._service_unavailable_error()
 
         depth_instruction = self._explanation_depth_instruction(normalized_explanation_depth)
         teaching_mode_instruction = self._teaching_mode_instruction(normalized_teaching_mode)
@@ -955,17 +983,23 @@ class AIService:
         focus_concepts: List[str] | None = None,
         quiz_profile_note: str | None = None,
     ) -> dict:
-        fallback = self.default_quiz_response(
-            topic=topic,
-            difficulty=difficulty,
-            question_count=question_count,
-            context=context,
-            quiz_mode=quiz_mode,
-            focus_concepts=focus_concepts,
-            quiz_profile_note=quiz_profile_note,
+        fallback = (
+            self.default_quiz_response(
+                topic=topic,
+                difficulty=difficulty,
+                question_count=question_count,
+                context=context,
+                quiz_mode=quiz_mode,
+                focus_concepts=focus_concepts,
+                quiz_profile_note=quiz_profile_note,
+            )
+            if self.mock_fallback_allowed
+            else None
         )
         if self.provider is None:
-            return fallback
+            if fallback is not None:
+                return fallback
+            raise self._service_unavailable_error()
 
         focus_summary = ", ".join(focus_concepts or []) or "None specified"
         normalized_quiz_mode = _normalize_quiz_mode(quiz_mode)
@@ -1023,7 +1057,10 @@ class AIService:
         self._provider_unavailable_reasons = unavailable_reasons
 
         if not providers:
-            logger.info("No configured live AI provider is available. Falling back to explicit mock mode.")
+            if self.settings.mock_ai_runtime_allowed:
+                logger.info("No configured live AI provider is available. Falling back to explicit mock mode.")
+            else:
+                logger.warning("No configured live AI provider is available and production mock fallback is disabled.")
             return None
 
         return ProviderRouter(
@@ -1144,6 +1181,11 @@ class AIService:
         if not isinstance(metadata, dict):
             return None
         return self._normalize_runtime_metadata(metadata)
+
+    def _service_unavailable_error(self, metadata: dict[str, object] | None = None) -> AIServiceUnavailableError:
+        attempted = (metadata or {}).get("attempted_provider_chain")
+        attempted_chain = [str(item) for item in attempted] if isinstance(attempted, list) else list(self.settings.live_ai_provider_chain)
+        return AIServiceUnavailableError(attempted_provider_chain=attempted_chain)
 
     def _live_generation_metadata(
         self,
@@ -1325,7 +1367,7 @@ class AIService:
         response.update(self._mock_generation_metadata(provider_fallback_reason=self._startup_provider_fallback_reason()))
         return response
 
-    def _call_with_fallback(self, *, system_prompt: str, user_prompt: str, fallback: dict, validator) -> dict:
+    def _call_with_fallback(self, *, system_prompt: str, user_prompt: str, fallback: dict | None, validator) -> dict:
         runtime_metadata: dict[str, object] | None = None
         try:
             payload = self.provider.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
@@ -1343,9 +1385,15 @@ class AIService:
             )
             return response
         except AIProviderError as exc:
-            logger.warning("AI provider call failed, using mock fallback: %s", exc)
-            fallback_response = dict(fallback)
             metadata = self._exception_provider_metadata(exc) or runtime_metadata or self._provider_runtime_metadata()
+            if not self.mock_fallback_allowed or fallback is None:
+                logger.warning(
+                    "Configured live AI providers failed; returning service unavailable. error_type=%s",
+                    type(exc).__name__,
+                )
+                raise self._service_unavailable_error(metadata) from exc
+            logger.warning("AI provider call failed, using mock fallback: %s", self._safe_provider_fallback_reason(exc))
+            fallback_response = dict(fallback)
             fallback_reason = str(metadata.get("provider_fallback_reason") or exc)
             fallback_response.update(
                 self._mock_generation_metadata(
@@ -1355,9 +1403,15 @@ class AIService:
             )
             return fallback_response
         except (TypeError, ValueError) as exc:
-            logger.warning("AI provider returned invalid JSON shape, using mock fallback: %s", exc)
-            fallback_response = dict(fallback)
             metadata = runtime_metadata or self._provider_runtime_metadata()
+            if not self.mock_fallback_allowed or fallback is None:
+                logger.warning(
+                    "Configured live AI provider returned an invalid response; returning service unavailable. error_type=%s",
+                    type(exc).__name__,
+                )
+                raise self._service_unavailable_error(metadata) from exc
+            logger.warning("AI provider returned invalid JSON shape, using mock fallback: %s", self._safe_provider_fallback_reason(exc))
+            fallback_response = dict(fallback)
             fallback_response.update(
                 self._mock_generation_metadata(
                     provider_fallback_reason=f"{metadata['provider_name']} returned invalid JSON shape: {exc}",

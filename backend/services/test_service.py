@@ -24,7 +24,7 @@ from backend.services.adaptive_service import (
     build_post_quiz_guidance,
     build_topic_difficulty_profile,
 )
-from backend.services.ai_service import AIService
+from backend.services.ai_service import AIService, AIServiceUnavailableError
 from backend.services.coach_service import (
     build_coach_summary,
     build_daily_plan,
@@ -1709,6 +1709,8 @@ def generate_quiz(
                 focus_concepts=batch_focus_concepts,
                 quiz_profile_note=str(quiz_exam_profile["quiz_profile_note"] or ""),
             )
+        except AIServiceUnavailableError:
+            raise
         except Exception:
             logger.exception(
                 "Quiz generation failed for topic '%s' in subject '%s'. Returning default quiz.",

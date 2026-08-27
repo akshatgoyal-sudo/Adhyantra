@@ -27,7 +27,7 @@ Minimum staging expectations:
 
 If the backend is reached directly during a dry run, include that direct host in `TRUSTED_HOSTS`. For real staging, route traffic through HTTPS/reverse proxy.
 
-This runbook is platform-neutral. The repository does not contain Vercel or Render service configuration, and following these steps does not establish that either platform is currently deployed or healthy.
+This runbook remains platform-neutral, while the repository also contains a separate `render.yaml` for the reviewed free-tier launch topology. Neither file establishes that Render or Vercel is currently deployed or healthy.
 
 ## 2. Deployment Preflight
 

@@ -14778,6 +14778,82 @@ def test_premium_tutor_access_is_rejected_before_generation_export_or_job_creati
         db.close()
 
 
+def test_strict_live_ai_failure_returns_503_without_success_side_effects(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.ai_client import AIProviderError
+    from backend.services import test_service, tutor_service
+    from backend.services.ai_service import AIService
+
+    class FailingLiveRouter:
+        provider_name = "router"
+        last_attempted_provider_names = ["gemini", "groq"]
+        last_fallback_used = True
+        last_fallback_reason = "key=must-not-escape"
+
+        def generate_json(self, *, system_prompt: str, user_prompt: str) -> dict:
+            raise AIProviderError("provider failure key=must-not-escape")
+
+    strict_service = AIService(
+        settings=Settings(
+            app_env="production",
+            ai_provider="gemini",
+            ai_provider_chain="gemini,groq",
+            allow_mock_ai_in_production=False,
+            gemini_api_key="unit-test-gemini-material",
+            groq_api_key="unit-test-groq-material",
+        ),
+        provider=FailingLiveRouter(),
+    )
+    monkeypatch.setattr(tutor_service, "ai_service", strict_service)
+    monkeypatch.setattr(test_service, "ai_service", strict_service)
+    authenticate_test_user(client, email="strict-ai-failure@example.invalid", display_name="Strict AI Failure")
+
+    session_factory = client.app.state.testing_session_factory
+    db = session_factory()
+    try:
+        before = {
+            "analytics": db.query(AnalyticsEvent).count(),
+            "study": db.query(TopicStudy).count(),
+            "quiz": db.query(Quiz).count(),
+            "usage": db.query(UsageConsumptionRecord).count(),
+        }
+    finally:
+        db.close()
+
+    responses = [
+        client.post("/api/tutor/explain", json={"topic": "Preamble", "subject": "polity", "exam": "upsc"}),
+        client.post("/api/tutor/doubt", json={"topic": "Preamble", "question": "Why does it matter?", "subject": "polity", "exam": "upsc"}),
+        client.post("/api/test/generate", json={"topic": "Preamble", "question_count": 5, "subject": "polity", "exam": "upsc"}),
+        client.post(
+            "/api/tutor/export/lesson",
+            json={
+                "topic": "Preamble",
+                "subject": "polity",
+                "exam": "upsc",
+                "lesson_mode": "mini_lesson",
+                "export_format": "markdown_export",
+            },
+        ),
+    ]
+
+    for response in responses:
+        assert response.status_code == 503
+        assert response.json() == {"detail": "AI generation is temporarily unavailable. Please try again."}
+        assert response.headers["retry-after"] == "30"
+        assert "must-not-escape" not in response.text
+
+    db = session_factory()
+    try:
+        assert db.query(AnalyticsEvent).count() == before["analytics"]
+        assert db.query(TopicStudy).count() == before["study"]
+        assert db.query(Quiz).count() == before["quiz"]
+        assert db.query(UsageConsumptionRecord).count() == before["usage"]
+    finally:
+        db.close()
+
+
 @pytest.mark.parametrize("lesson_mode", ["video_lecture", "revision_video", "crash_course_video"])
 def test_phase25_premium_user_can_use_premium_video_lesson_mode(client: TestClient, lesson_mode: str) -> None:
     authenticate_premium_test_user(client, email=f"phase25-premium-{lesson_mode.replace('_', '-')}@example.com")

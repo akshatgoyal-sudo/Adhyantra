@@ -14,7 +14,7 @@ from backend.config import (
     normalize_subject,
     resolve_exam_content_subject,
 )
-from backend.services.ai_service import AIService
+from backend.services.ai_service import AIService, AIServiceUnavailableError
 from backend.services.adaptive_service import build_explanation_depth_profile
 from backend.services.coach_service import build_progress_summary_snapshot
 from backend.services.knowledge_service import (
@@ -2972,15 +2972,6 @@ def explain_topic(
         subject=resolved_subject,
         content_subject=resolved_content_subject,
     )
-    if selected_topic and record_study:
-        mark_topic_studied(
-            db,
-            topic=selected_topic,
-            subject=resolved_content_subject,
-            chapter=selected_chapter,
-            user_id=user_id,
-            exam=resolved_exam,
-        )
     try:
         response = ai_service.explain_topic(
             topic=selected_topic,
@@ -2993,6 +2984,8 @@ def explain_topic(
             teaching_profile_note=str(exam_teaching_profile.get("prompt_note") or ""),
             lesson_mode=prompt_lesson_mode,
         )
+    except AIServiceUnavailableError:
+        raise
     except Exception:
         logger.exception(
             "Explain flow failed for topic '%s' in subject '%s'. Returning default explanation.",
@@ -3008,6 +3001,15 @@ def explain_topic(
             teaching_pacing=teaching_profile["teaching_pacing"],
             conceptual_density=teaching_profile["conceptual_density"],
             teaching_profile_note=str(exam_teaching_profile.get("prompt_note") or ""),
+        )
+    if selected_topic and record_study:
+        mark_topic_studied(
+            db,
+            topic=selected_topic,
+            subject=resolved_content_subject,
+            chapter=selected_chapter,
+            user_id=user_id,
+            exam=resolved_exam,
         )
     response = _apply_exam_response_refinements(
         topic=selected_topic,
@@ -3372,15 +3374,6 @@ def answer_doubt(
             "misconception_reason": misconception_profile.get("misconception_reason"),
         },
     )
-    if resolved_topic:
-        mark_topic_studied(
-            db,
-            topic=resolved_topic,
-            subject=resolved_content_subject,
-            chapter=resolved_chapter,
-            user_id=user_id,
-            exam=resolved_exam,
-        )
     try:
         response = ai_service.solve_doubt(
             topic=resolved_topic,
@@ -3398,6 +3391,8 @@ def answer_doubt(
             teaching_pacing=str(teaching_profile["teaching_pacing"]),
             conceptual_density=str(teaching_profile["conceptual_density"]),
         )
+    except AIServiceUnavailableError:
+        raise
     except Exception:
         logger.exception(
             "Doubt flow failed for topic '%s', subject '%s', and question '%s'. Returning default doubt response.",
@@ -3420,6 +3415,15 @@ def answer_doubt(
             teaching_support=str(teaching_profile["teaching_support"]),
             teaching_pacing=str(teaching_profile["teaching_pacing"]),
             conceptual_density=str(teaching_profile["conceptual_density"]),
+        )
+    if resolved_topic:
+        mark_topic_studied(
+            db,
+            topic=resolved_topic,
+            subject=resolved_content_subject,
+            chapter=resolved_chapter,
+            user_id=user_id,
+            exam=resolved_exam,
         )
     response = _apply_exam_response_refinements(
         topic=resolved_topic,

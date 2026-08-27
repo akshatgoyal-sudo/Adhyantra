@@ -1150,7 +1150,7 @@ class Settings:
     payment_razorpay_webhook_secret: str = field(default_factory=lambda: _env("PAYMENT_RAZORPAY_WEBHOOK_SECRET", ""))
     payment_razorpay_base_url: str = field(default_factory=lambda: _env("PAYMENT_RAZORPAY_BASE_URL", DEFAULT_PAYMENT_RAZORPAY_BASE_URL))
     payment_razorpay_total_count: int = field(default_factory=lambda: _env_int("PAYMENT_RAZORPAY_TOTAL_COUNT", 12))
-    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-1.5-flash"))
+    gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-2.5-flash"))
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY", ""))
     gemini_base_url: str = field(default_factory=lambda: _env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"))
     groq_model: str = field(default_factory=lambda: _env("GROQ_MODEL", "llama-3.1-8b-instant"))
@@ -1205,20 +1205,26 @@ class Settings:
         return _normalize_ai_provider_name(self.ai_provider)
 
     @property
+    def mock_ai_runtime_allowed(self) -> bool:
+        return not self.production_mode or bool(self.allow_mock_ai_in_production)
+
+    @property
     def configured_ai_provider_chain(self) -> tuple[str, ...]:
         configured = tuple(_normalize_ai_provider_name(provider) for provider in _split_csv_values(self.ai_provider_chain))
         if configured:
             return _dedupe_values(configured)
         primary = self.provider_name
         if primary == "gemini":
-            return ("gemini", "groq", "mock")
+            return ("gemini", "groq")
         if primary in AI_PROVIDER_NAMES:
-            return (primary, "mock") if primary != "mock" else ("mock",)
-        return (primary, "mock")
+            return (primary,)
+        return (primary,)
 
     @property
     def effective_ai_provider_chain(self) -> tuple[str, ...]:
         configured = self.configured_ai_provider_chain
+        if not self.mock_ai_runtime_allowed:
+            return tuple(provider for provider in configured if provider != "mock")
         if "mock" in configured:
             return configured
         return (*configured, "mock")
@@ -1275,7 +1281,7 @@ class Settings:
 
     @property
     def mock_mode(self) -> bool:
-        return not self.live_ai_provider_available
+        return self.mock_ai_runtime_allowed and not self.live_ai_provider_available
 
     @property
     def environment_name(self) -> str:
@@ -1613,17 +1619,17 @@ class Settings:
             )
         if bool(self.smtp_use_ssl) and bool(self.smtp_use_tls):
             add_issue(
-                "warning",
+                "error",
                 "email",
-                "smtp_ssl_skips_starttls",
-                "SMTP_USE_SSL uses implicit TLS and will skip STARTTLS even when SMTP_USE_TLS is true.",
+                "smtp_tls_modes_conflict",
+                "SMTP_USE_TLS and SMTP_USE_SSL cannot both be enabled.",
             )
         if bool(self.smtp_use_ssl) and int(self.smtp_port or 0) == 587:
             add_issue(
-                "warning",
+                "error",
                 "email",
                 "smtp_ssl_common_port_mismatch",
-                "SMTP_USE_SSL is usually paired with port 465; port 587 commonly uses STARTTLS.",
+                "SMTP_PORT=587 requires STARTTLS, not SMTP_USE_SSL.",
             )
         if bool(self.smtp_use_tls) and not bool(self.smtp_use_ssl) and int(self.smtp_port or 0) == 465:
             add_issue(
@@ -1633,12 +1639,34 @@ class Settings:
                 "SMTP_USE_TLS with STARTTLS is usually paired with port 587; port 465 commonly uses SMTP_USE_SSL=true.",
             )
 
+        smtp_host = str(self.smtp_host or "").strip().lower().rstrip(".")
+        if policy.production and smtp_host == "smtp.gmail.com":
+            smtp_username = str(self.smtp_username or "").strip()
+            smtp_password = str(self.smtp_password or "").strip()
+            from_address = str(self.email_from_address or "").strip()
+            if int(self.smtp_port or 0) != 587:
+                add_issue("error", "email", "gmail_smtp_requires_port_587", "Gmail SMTP must use port 587 for the configured STARTTLS deployment contract.")
+            if not smtp_username:
+                add_issue("error", "email", "missing_gmail_smtp_username", "SMTP_USERNAME is required for Gmail SMTP.")
+            if not smtp_password:
+                add_issue("error", "email", "missing_gmail_smtp_password", "SMTP_PASSWORD must contain a Google App Password for Gmail SMTP.")
+            if not bool(self.smtp_use_tls) or bool(self.smtp_use_ssl):
+                add_issue("error", "email", "gmail_smtp_requires_starttls", "Gmail SMTP on port 587 requires SMTP_USE_TLS=true and SMTP_USE_SSL=false.")
+            if smtp_username and from_address and smtp_username.casefold() != from_address.casefold():
+                add_issue(
+                    "error",
+                    "email",
+                    "gmail_sender_username_mismatch",
+                    "EMAIL_FROM_ADDRESS must match SMTP_USERNAME for the initial Gmail SMTP deployment.",
+                )
+
     def ai_runtime_summary(self) -> dict[str, Any]:
         configured_live_providers = [
             provider for provider in self.live_ai_provider_chain if self.ai_provider_configured(provider)
         ]
+        active_provider = configured_live_providers[0] if configured_live_providers else "mock" if self.mock_mode else "unavailable"
         return {
-            "provider": "mock" if self.mock_mode else configured_live_providers[0],
+            "provider": active_provider,
             "mock_mode": self.mock_mode,
             "provider_chain": list(self.effective_ai_provider_chain),
             "configured_live_providers": configured_live_providers,
@@ -1750,8 +1778,16 @@ class Settings:
                 add_issue("warning", "ai", "invalid_ai_timeout", "AI_TIMEOUT_SECONDS must be at least 1; it will be clamped to 1 second.")
             if not provider_chain:
                 add_issue("warning", "ai", "empty_provider_chain", "AI_PROVIDER_CHAIN is empty; mock fallback will be used.")
-            if self.ai_provider_chain and "mock" not in self.configured_ai_provider_chain:
+            if self.mock_ai_runtime_allowed and self.ai_provider_chain and "mock" not in self.configured_ai_provider_chain:
                 add_issue("warning", "ai", "mock_fallback_appended", "AI_PROVIDER_CHAIN did not include mock; mock will be appended as the final explicit fallback.")
+
+            if policy.production and not self.allow_mock_ai_in_production and "mock" in self.configured_ai_provider_chain:
+                add_issue(
+                    "error",
+                    "ai",
+                    "mock_ai_forbidden_in_production_chain",
+                    "Production AI_PROVIDER and AI_PROVIDER_CHAIN must not include mock when ALLOW_MOCK_AI_IN_PRODUCTION=false.",
+                )
 
             for provider in provider_chain:
                 if provider not in AI_PROVIDER_NAMES:
@@ -2191,14 +2227,14 @@ class Settings:
             if sqlite_db_configured and policy.sqlite_issue_severity == "warning":
                 add_issue("warning", "database", "sqlite_in_staging", "Staging can boot with SQLite, but a managed database is recommended before production.")
             if api_role:
-                if self.mock_mode and not self.allow_mock_ai_in_production and policy.mock_ai_issue_severity:
+                if not self.live_ai_provider_available and not self.allow_mock_ai_in_production and policy.mock_ai_issue_severity:
                     add_issue(
                         policy.mock_ai_issue_severity,
                         "ai",
                         "mock_ai_in_production" if policy.production else "mock_ai_in_staging",
-                        "Deployed environments should configure a live provider chain such as AI_PROVIDER_CHAIN=gemini,groq,mock with provider API keys, or set ALLOW_MOCK_AI_IN_PRODUCTION=true intentionally.",
+                        "Deployed environments should configure a live provider chain such as AI_PROVIDER_CHAIN=gemini,groq with provider API keys, or set ALLOW_MOCK_AI_IN_PRODUCTION=true intentionally.",
                     )
-                if self.mock_mode and self.allow_mock_ai_in_production:
+                if not self.live_ai_provider_available and self.allow_mock_ai_in_production:
                     add_issue("warning", "ai", "mock_ai_explicitly_allowed", "Mock AI is explicitly allowed in this deployed environment.")
                 if email_delivery_mode == "console" and policy.require_real_email_delivery:
                     add_issue(

@@ -23,6 +23,7 @@ from backend.routes.progress_routes import router as progress_router
 from backend.routes.test_routes import router as test_router
 from backend.routes.topic_routes import router as topic_router
 from backend.routes.tutor_routes import router as tutor_router
+from backend.services.ai_service import AIServiceUnavailableError
 from backend.services.media_render_dispatch_service import start_media_render_dispatcher, stop_media_render_dispatcher
 from backend.services.media_render_ops_service import build_media_render_pipeline_snapshot, build_media_render_worker_snapshot
 from backend.services.media_render_service import recover_stale_queued_media_render_jobs
@@ -544,6 +545,28 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         status_code=exc.status_code,
         content={"detail": exc.detail},
         headers=headers,
+    )
+
+
+@app.exception_handler(AIServiceUnavailableError)
+async def ai_service_unavailable_exception_handler(request: Request, exc: AIServiceUnavailableError) -> JSONResponse:
+    log_event(
+        event_logger,
+        logging.WARNING,
+        "ai.generation_unavailable",
+        **request_log_context(request),
+        method=request.method,
+        path=request.url.path,
+        status_code=exc.status_code,
+        attempted_provider_chain=list(exc.attempted_provider_chain),
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.public_detail},
+        headers={
+            "Retry-After": "30",
+            "X-Request-ID": str(getattr(request.state, "request_id", "")),
+        },
     )
 
 

@@ -42,7 +42,21 @@ services:
       - key: EMAIL_DELIVERY_MODE
         value: email
       - key: EMAIL_TRANSPORT
-        value: resend
+        value: smtp
+      - key: EMAIL_FROM_NAME
+        value: Adhyantra
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: SMTP_USE_SSL
+        value: "false"
+      - key: SMTP_TIMEOUT_SECONDS
+        value: "15"
+      - key: AUTH_DEV_RETURN_OTP
+        value: "false"
       - key: TTS_PROVIDER
         value: gemini
       - key: TTS_GEMINI_MODEL
@@ -58,7 +72,17 @@ services:
       - key: AI_PROVIDER
         value: gemini
       - key: AI_PROVIDER_CHAIN
-        value: gemini,groq,mock
+        value: gemini,groq
+      - key: ALLOW_MOCK_AI_IN_PRODUCTION
+        value: "false"
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: PAYMENT_PROVIDER
+        value: disabled
+      - key: ALLOW_SQLITE_IN_PRODUCTION
+        value: "false"
       - key: EXAM_GURU_DB_URL
         sync: false
       - key: FRONTEND_ORIGIN
@@ -75,9 +99,11 @@ services:
         sync: false
       - key: SUPABASE_MEDIA_BUCKET
         sync: false
-      - key: RESEND_API_KEY
-        sync: false
       - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
         sync: false
       - key: GEMINI_API_KEY
         sync: false

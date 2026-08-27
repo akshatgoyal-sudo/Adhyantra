@@ -211,7 +211,7 @@ class ProviderRouter:
         self.last_fallback_reason = "; ".join(errors) if errors else "No configured live AI provider was available."
         self.last_attempted_provider_names = configured_chain or attempted
         raise AIProviderError(
-            f"All configured live AI providers failed; using mock fallback. {self.last_fallback_reason}",
+            f"All configured live AI providers failed. {self.last_fallback_reason}",
             provider_metadata={
                 "provider_name": "mock",
                 "model_name": None,
@@ -247,7 +247,7 @@ def _parse_json_text(content: str) -> Dict[str, Any]:
 def _gemini_model_path(model: str) -> str:
     cleaned_model = str(model or "").strip().strip("/")
     if not cleaned_model:
-        cleaned_model = "gemini-1.5-flash"
+        cleaned_model = "gemini-2.5-flash"
     if cleaned_model.startswith("models/"):
         return quote(cleaned_model, safe="/")
     return f"models/{quote(cleaned_model, safe='')}"
