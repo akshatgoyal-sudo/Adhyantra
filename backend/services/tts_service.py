@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import io
 import json
 import logging
 from pathlib import Path
 import re
 import shutil
 from typing import Any, Callable
+import wave
 import zipfile
 
 import httpx
 from sqlalchemy.orm import Session
 
+from backend.ai_client import _gemini_model_path
 from backend.config import Settings, get_settings
 from backend.models import MediaRenderJob
 from backend.schemas import AudioScriptExportPayload, AudioScriptExportSegment
@@ -56,9 +61,17 @@ HttpClientFactory = Callable[[float], Any]
 class TTSRenderError(RuntimeError):
     """Raised when a configured TTS path cannot complete rendering."""
 
+    def __init__(self, message: str, *, reason: str = "tts_render_failed", retryable: bool = False) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.retryable = retryable
+
 
 class TTSProviderUnavailableError(TTSRenderError):
     """Raised when TTS is not configured or intentionally disabled."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, reason="tts_provider_unavailable", retryable=False)
 
 
 @dataclass(frozen=True)
@@ -115,8 +128,10 @@ def _default_http_client_factory(timeout_seconds: float) -> httpx.Client:
     return httpx.Client(timeout=timeout_seconds)
 
 
-def _is_retryable_tts_render_error(message: str) -> bool:
-    normalized = str(message or "").strip().lower()
+def _is_retryable_tts_render_error(error: str | BaseException) -> bool:
+    if isinstance(error, TTSRenderError) and error.retryable:
+        return True
+    normalized = str(error or "").strip().lower()
     if not normalized:
         return False
     transient_markers = (
@@ -160,6 +175,9 @@ class BaseTTSProvider:
 
     def runtime_metadata(self) -> dict[str, Any]:
         return {"provider": self.provider_name}
+
+    def output_format(self, configured_format: str) -> str:
+        return configured_format
 
 
 class DisabledTTSProvider(BaseTTSProvider):
@@ -249,6 +267,181 @@ class OpenAITTSProvider(BaseTTSProvider):
         return audio_bytes, AUDIO_FORMAT_CONTENT_TYPES.get(output_format, "application/octet-stream")
 
 
+def _validate_wav_audio(audio_bytes: bytes, *, max_bytes: int) -> bytes:
+    if not audio_bytes or len(audio_bytes) > max_bytes:
+        raise TTSRenderError("Gemini TTS returned an invalid audio size.", reason="tts_invalid_response")
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as audio:
+            channels = audio.getnchannels()
+            sample_width = audio.getsampwidth()
+            sample_rate = audio.getframerate()
+            frame_count = audio.getnframes()
+            compression = audio.getcomptype()
+            frames = audio.readframes(frame_count)
+    except (EOFError, wave.Error) as exc:
+        raise TTSRenderError("Gemini TTS returned a malformed WAV payload.", reason="tts_invalid_response") from exc
+    if channels != 1 or sample_width != 2 or sample_rate != 24_000 or compression != "NONE" or not frames:
+        raise TTSRenderError("Gemini TTS returned unsupported WAV audio parameters.", reason="tts_invalid_response")
+    if len(frames) % (channels * sample_width) != 0:
+        raise TTSRenderError("Gemini TTS returned misaligned WAV audio.", reason="tts_invalid_response")
+    return audio_bytes
+
+
+def _pcm_to_wav(pcm_bytes: bytes, *, max_bytes: int) -> bytes:
+    if not pcm_bytes:
+        raise TTSRenderError("Gemini TTS returned an empty audio payload.", reason="tts_invalid_response")
+    if len(pcm_bytes) % 2:
+        raise TTSRenderError("Gemini TTS returned misaligned PCM audio.", reason="tts_invalid_response")
+    if len(pcm_bytes) + 44 > max_bytes:
+        raise TTSRenderError("Gemini TTS audio exceeds the configured storage limit.", reason="tts_audio_too_large")
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(24_000)
+        audio.writeframes(pcm_bytes)
+    wav_bytes = output.getvalue()
+    return _validate_wav_audio(wav_bytes, max_bytes=max_bytes)
+
+
+def _decode_gemini_audio_payload(body: Any, *, max_bytes: int) -> bytes:
+    if not isinstance(body, dict):
+        raise TTSRenderError("Gemini TTS returned a malformed response.", reason="tts_invalid_response")
+    candidates = body.get("candidates")
+    if not isinstance(candidates, list) or len(candidates) != 1 or not isinstance(candidates[0], dict):
+        raise TTSRenderError("Gemini TTS returned an ambiguous audio response.", reason="tts_invalid_response")
+    content = candidates[0].get("content")
+    parts = content.get("parts") if isinstance(content, dict) else None
+    if not isinstance(parts, list) or not parts:
+        raise TTSRenderError("Gemini TTS returned no audio payload.", reason="tts_invalid_response")
+
+    audio_parts: list[dict[str, Any]] = []
+    unexpected_text = False
+    for part in parts:
+        if not isinstance(part, dict):
+            raise TTSRenderError("Gemini TTS returned a malformed audio part.", reason="tts_invalid_response")
+        inline_data = part.get("inlineData") or part.get("inline_data")
+        if isinstance(inline_data, dict):
+            audio_parts.append(inline_data)
+        elif str(part.get("text") or "").strip():
+            unexpected_text = True
+    if len(audio_parts) != 1 or unexpected_text:
+        raise TTSRenderError("Gemini TTS returned an ambiguous audio response.", reason="tts_invalid_response")
+
+    inline_data = audio_parts[0]
+    encoded = inline_data.get("data")
+    mime_type = _normalize_text(inline_data.get("mimeType") or inline_data.get("mime_type")).lower()
+    if not isinstance(encoded, str) or not encoded.strip():
+        raise TTSRenderError("Gemini TTS returned an empty audio payload.", reason="tts_invalid_response")
+    if len(encoded) > (((max_bytes + 2) // 3) * 4) + 4:
+        raise TTSRenderError("Gemini TTS audio exceeds the configured storage limit.", reason="tts_audio_too_large")
+    try:
+        audio_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise TTSRenderError("Gemini TTS returned invalid base64 audio.", reason="tts_invalid_response") from exc
+    if len(audio_bytes) > max_bytes:
+        raise TTSRenderError("Gemini TTS audio exceeds the configured storage limit.", reason="tts_audio_too_large")
+
+    mime_parts = [part.strip() for part in mime_type.split(";") if part.strip()]
+    media_type = mime_parts[0] if mime_parts else ""
+    parameters = {}
+    for parameter in mime_parts[1:]:
+        if "=" in parameter:
+            key, value = parameter.split("=", 1)
+            parameters[key.strip()] = value.strip().strip('"')
+    if media_type in {"audio/wav", "audio/x-wav"}:
+        return _validate_wav_audio(audio_bytes, max_bytes=max_bytes)
+    if media_type not in {"audio/l16", "audio/pcm"}:
+        raise TTSRenderError("Gemini TTS returned an unsupported audio MIME type.", reason="tts_invalid_response")
+    if parameters.get("codec", "pcm").lower() != "pcm" or parameters.get("rate", "24000") != "24000":
+        raise TTSRenderError("Gemini TTS returned unsupported PCM audio parameters.", reason="tts_invalid_response")
+    return _pcm_to_wav(audio_bytes, max_bytes=max_bytes)
+
+
+class GeminiTTSProvider(BaseTTSProvider):
+    provider_name = "gemini"
+
+    def __init__(self, settings: Settings, http_client_factory: HttpClientFactory | None = None):
+        self._http_client_factory = http_client_factory or _default_http_client_factory
+        self._base_url = str(settings.gemini_base_url or "").rstrip("/")
+        self._api_key = _normalize_text(settings.gemini_api_key)
+        self._model = _normalize_text(settings.tts_gemini_model)
+        self._voice = _normalize_text(settings.tts_gemini_voice)
+        self._timeout_seconds = settings.effective_tts_timeout_seconds
+        self._max_input_characters = settings.effective_tts_max_input_characters
+        self._max_audio_bytes = settings.effective_media_storage_max_object_bytes
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider_name,
+            "model": self._model,
+            "voice": self._voice,
+            "output_format": "wav",
+            "sample_rate_hz": 24_000,
+            "channels": 1,
+            "sample_width_bits": 16,
+        }
+
+    def output_format(self, configured_format: str) -> str:
+        return "wav"
+
+    def render_segment(
+        self,
+        *,
+        audio_script: AudioScriptExportPayload,
+        segment: AudioScriptExportSegment,
+        output_format: str,
+    ) -> tuple[bytes, str]:
+        if not self._api_key or not self._model or not self._voice or not self._base_url:
+            raise TTSProviderUnavailableError("Gemini TTS is selected but not fully configured.")
+        if not re.fullmatch(r"(?:models/)?gemini-[A-Za-z0-9._-]*tts[A-Za-z0-9._-]*", self._model, re.IGNORECASE):
+            raise TTSProviderUnavailableError("Gemini TTS model configuration is unsupported.")
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", self._voice):
+            raise TTSProviderUnavailableError("Gemini TTS voice configuration is invalid.")
+        narration_text = str(segment.narration_text or "")
+        if not narration_text.strip():
+            raise TTSRenderError("Narration segment is empty.", reason="tts_invalid_input")
+        if len(narration_text) > self._max_input_characters:
+            raise TTSRenderError("Narration segment exceeds the configured TTS input limit.", reason="tts_input_limit_exceeded")
+
+        endpoint = f"{self._base_url}/{_gemini_model_path(self._model)}:generateContent"
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": narration_text}]}],
+            "generationConfig": {
+                "candidateCount": 1,
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": self._voice}},
+                },
+            },
+        }
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self._api_key}
+        try:
+            with self._http_client_factory(self._timeout_seconds) as client:
+                response = client.post(endpoint, headers=headers, json=payload)
+                response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TTSRenderError("Gemini TTS request timed out.", reason="tts_provider_timeout", retryable=True) from exc
+        except httpx.HTTPStatusError as exc:
+            status_code = int(exc.response.status_code)
+            if status_code == 429:
+                raise TTSRenderError("Gemini TTS free-tier quota is temporarily exhausted.", reason="tts_quota_exhausted", retryable=True) from exc
+            if status_code in {500, 502, 503, 504}:
+                raise TTSRenderError("Gemini TTS is temporarily unavailable.", reason="tts_provider_temporary", retryable=True) from exc
+            if status_code in {401, 403}:
+                raise TTSRenderError("Gemini TTS credentials were rejected.", reason="tts_invalid_credentials") from exc
+            if status_code == 404:
+                raise TTSRenderError("Gemini TTS model is unavailable.", reason="tts_unsupported_model") from exc
+            raise TTSRenderError("Gemini TTS rejected the request.", reason="tts_provider_rejected") from exc
+        except httpx.HTTPError as exc:
+            raise TTSRenderError("Gemini TTS request failed.", reason="tts_provider_unavailable", retryable=True) from exc
+        try:
+            response_body = response.json()
+        except ValueError as exc:
+            raise TTSRenderError("Gemini TTS returned a malformed response.", reason="tts_invalid_response") from exc
+        return _decode_gemini_audio_payload(response_body, max_bytes=self._max_audio_bytes), "audio/wav"
+
+
 def build_tts_provider(
     settings: Settings | None = None,
     *,
@@ -257,6 +450,8 @@ def build_tts_provider(
     active_settings = settings or get_settings()
     if active_settings.effective_tts_provider == "openai":
         return OpenAITTSProvider(active_settings, http_client_factory=http_client_factory)
+    if active_settings.effective_tts_provider == "gemini":
+        return GeminiTTSProvider(active_settings, http_client_factory=http_client_factory)
     return DisabledTTSProvider()
 
 
@@ -279,8 +474,12 @@ def render_audio_segments_to_directory(
     active_settings = settings or get_settings()
     relative_media_render_storage_path(output_directory.resolve(), active_settings)
     active_provider = provider or build_tts_provider(active_settings, http_client_factory=http_client_factory)
+    if len(audio_script.segments) > active_settings.effective_tts_max_segments:
+        raise TTSRenderError("Narration segment count exceeds the configured TTS limit.", reason="tts_segment_limit_exceeded")
+    if any(len(str(segment.narration_text or "")) > active_settings.effective_tts_max_input_characters for segment in audio_script.segments):
+        raise TTSRenderError("Narration segment exceeds the configured TTS input limit.", reason="tts_input_limit_exceeded")
     output_directory.mkdir(parents=True, exist_ok=True)
-    output_format = active_settings.effective_tts_output_format
+    output_format = active_provider.output_format(active_settings.effective_tts_output_format)
     rendered_segments: list[RenderedAudioSegment] = []
     for segment in audio_script.segments:
         audio_bytes, content_type = active_provider.render_segment(
@@ -288,6 +487,10 @@ def render_audio_segments_to_directory(
             segment=segment,
             output_format=output_format,
         )
+        if not audio_bytes:
+            raise TTSRenderError("TTS provider returned an empty audio payload.", reason="tts_invalid_response")
+        if len(audio_bytes) > active_settings.effective_media_storage_max_object_bytes:
+            raise TTSRenderError("TTS audio exceeds the configured storage limit.", reason="tts_audio_too_large")
         segment_filename = _segment_filename(segment, output_format)
         segment_path = output_directory / segment_filename
         segment_path.write_bytes(audio_bytes)
@@ -336,7 +539,7 @@ def _write_segment_audio_bundle(
             "lesson_mode": job.lesson_mode,
             "source_export_format": job.source_export_format,
             "provider_runtime": provider.runtime_metadata(),
-            "output_format": settings.effective_tts_output_format,
+            "output_format": provider.output_format(settings.effective_tts_output_format),
             "ai_generated_audio": True,
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
             "lesson_context": {
@@ -392,7 +595,7 @@ def _write_segment_audio_bundle(
             metadata={
                 "version": TTS_RENDER_VERSION,
                 "provider_runtime": provider.runtime_metadata(),
-                "output_format": settings.effective_tts_output_format,
+                "output_format": provider.output_format(settings.effective_tts_output_format),
                 "segment_count": len(rendered_segments),
                 "manifest_filename": manifest_path.name,
                 "manifest_path": package_relative_media_render_path(manifest_path, bundle_dir),
@@ -441,11 +644,11 @@ def render_audio_job_from_audio_script(
         )
     except TTSRenderError as exc:
         logger.warning("TTS render failed for media render job %s: %s", running_job.id, exc)
-        if worker_retries_enabled and _is_retryable_tts_render_error(str(exc)):
+        if worker_retries_enabled and _is_retryable_tts_render_error(exc):
             return mark_media_render_job_retryable_failed(
                 db,
                 job=running_job,
-                failure_code="tts_render_retryable",
+                failure_code=exc.reason if exc.reason != "tts_render_failed" else "tts_render_retryable",
                 failure_message=str(exc),
                 retry_after_at=build_transient_media_render_retry_after(running_job.attempt_count),
                 status_note="Audio generation hit a temporary issue. Trying again soon.",

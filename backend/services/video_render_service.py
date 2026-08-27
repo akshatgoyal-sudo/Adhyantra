@@ -51,8 +51,10 @@ SCENE_VIDEO_HONESTY_NOTE = (
 )
 
 
-def _is_retryable_scene_render_error(message: str) -> bool:
-    normalized = str(message or "").strip().lower()
+def _is_retryable_scene_render_error(error: str | BaseException) -> bool:
+    if isinstance(error, TTSRenderError) and error.retryable:
+        return True
+    normalized = str(error or "").strip().lower()
     if not normalized:
         return False
     transient_markers = (
@@ -492,7 +494,7 @@ def render_scene_video_job_from_lesson(
         )
     except TTSRenderError as exc:
         logger.warning("Scene render failed for media render job %s: %s", running_job.id, exc)
-        if worker_retries_enabled and _is_retryable_scene_render_error(str(exc)):
+        if worker_retries_enabled and _is_retryable_scene_render_error(exc):
             return mark_media_render_job_retryable_failed(
                 db,
                 job=running_job,

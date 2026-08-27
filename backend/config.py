@@ -33,7 +33,7 @@ AI_PROVIDER_ALIASES = {
     "local": "mock",
     "none": "mock",
 }
-TTS_PROVIDER_NAMES = ("disabled", "openai")
+TTS_PROVIDER_NAMES = ("disabled", "openai", "gemini")
 TTS_PROVIDER_ALIASES = {
     "false": "disabled",
     "mock": "disabled",
@@ -1121,6 +1121,10 @@ class Settings:
     tts_openai_api_key: str = field(default_factory=lambda: _first_env("TTS_OPENAI_API_KEY", "OPENAI_API_KEY"))
     tts_openai_base_url: str = field(default_factory=lambda: _env("TTS_OPENAI_BASE_URL", "https://api.openai.com/v1"))
     tts_openai_voice: str = field(default_factory=lambda: _env("TTS_OPENAI_VOICE", "alloy"))
+    tts_gemini_model: str = field(default_factory=lambda: _env("TTS_GEMINI_MODEL", "gemini-2.5-flash-preview-tts"))
+    tts_gemini_voice: str = field(default_factory=lambda: _env("TTS_GEMINI_VOICE", "Kore"))
+    tts_max_input_characters: int = field(default_factory=lambda: _env_int("TTS_MAX_INPUT_CHARACTERS", 4096))
+    tts_max_segments: int = field(default_factory=lambda: _env_int("TTS_MAX_SEGMENTS", 24))
     media_storage_backend: str = field(default_factory=lambda: _env("MEDIA_STORAGE_BACKEND", "local"))
     media_render_output_dir: str = field(default_factory=lambda: _env("MEDIA_RENDER_OUTPUT_DIR", DEFAULT_MEDIA_RENDER_OUTPUT_DIR.as_posix()))
     supabase_url: str = field(default_factory=lambda: _env("SUPABASE_URL", ""))
@@ -1381,7 +1385,17 @@ class Settings:
 
     @property
     def effective_tts_output_format(self) -> str:
+        if self.effective_tts_provider == "gemini":
+            return "wav"
         return _normalize_tts_output_format(self.tts_output_format)
+
+    @property
+    def effective_tts_max_input_characters(self) -> int:
+        return max(int(self.tts_max_input_characters or 0), 1)
+
+    @property
+    def effective_tts_max_segments(self) -> int:
+        return max(int(self.tts_max_segments or 0), 1)
 
     @property
     def effective_media_render_output_dir(self) -> Path:
@@ -1466,6 +1480,13 @@ class Settings:
     def tts_provider_configured(self) -> bool:
         if self.effective_tts_provider == "disabled":
             return False
+        if self.effective_tts_provider == "gemini":
+            return bool(
+                str(self.gemini_api_key or "").strip()
+                and str(self.tts_gemini_model or "").strip()
+                and str(self.tts_gemini_voice or "").strip()
+                and str(self.gemini_base_url or "").strip()
+            )
         return bool(
             str(self.tts_openai_api_key or "").strip()
             and str(self.tts_openai_model or "").strip()
@@ -1626,13 +1647,16 @@ class Settings:
         }
 
     def tts_runtime_summary(self) -> dict[str, Any]:
+        gemini_selected = self.effective_tts_provider == "gemini"
         return {
             "provider": self.effective_tts_provider,
             "configured": self.tts_provider_configured,
             "timeout_seconds": self.effective_tts_timeout_seconds,
             "output_format": self.effective_tts_output_format,
-            "voice": str(self.tts_openai_voice or "").strip() or None,
-            "model": str(self.tts_openai_model or "").strip() or None,
+            "voice": str(self.tts_gemini_voice if gemini_selected else self.tts_openai_voice).strip() or None,
+            "model": str(self.tts_gemini_model if gemini_selected else self.tts_openai_model).strip() or None,
+            "max_input_characters": self.effective_tts_max_input_characters,
+            "max_segments": self.effective_tts_max_segments,
             "output_dir": self.effective_media_render_output_dir.as_posix(),
             "storage_backend": self.effective_media_storage_backend,
             "storage_max_object_bytes": self.effective_media_storage_max_object_bytes,
@@ -1895,6 +1919,10 @@ class Settings:
         raw_tts_provider = _normalize_tts_provider_name(self.tts_provider)
         if int(self.tts_timeout_seconds or 0) < 1:
             add_issue("warning", "tts", "invalid_tts_timeout", "TTS_TIMEOUT_SECONDS must be at least 1; it will be clamped to 1 second.")
+        if not 1 <= int(self.tts_max_input_characters or 0) <= 20_000:
+            add_issue("error", "tts", "invalid_tts_max_input_characters", "TTS_MAX_INPUT_CHARACTERS must be between 1 and 20000.")
+        if not 1 <= int(self.tts_max_segments or 0) <= 100:
+            add_issue("error", "tts", "invalid_tts_max_segments", "TTS_MAX_SEGMENTS must be between 1 and 100.")
         raw_worker_mode = _normalize_media_render_worker_mode(self.media_render_worker_mode)
         if raw_worker_mode not in {"embedded", "external", "disabled"}:
             add_issue(
@@ -2082,6 +2110,32 @@ class Settings:
                 add_issue("warning", "tts", "invalid_tts_openai_base_url", "TTS_OPENAI_BASE_URL must be an http(s) URL for OpenAI TTS rendering.")
             if not str(self.tts_openai_voice or "").strip():
                 add_issue("warning", "tts", "missing_tts_openai_voice", "TTS_OPENAI_VOICE is missing; OpenAI TTS rendering will be unavailable.")
+        elif self.effective_tts_provider == "gemini":
+            gemini_tts_model = str(self.tts_gemini_model or "").strip()
+            gemini_tts_voice = str(self.tts_gemini_voice or "").strip()
+            tts_issue_severity = "error" if policy.deployed else "warning"
+            if not str(self.gemini_api_key or "").strip():
+                add_issue(tts_issue_severity, "tts", "missing_tts_gemini_key", "GEMINI_API_KEY is required when TTS_PROVIDER=gemini.")
+            elif _looks_like_placeholder_secret(self.gemini_api_key):
+                add_issue(tts_issue_severity, "secrets", "placeholder_tts_gemini_key", "GEMINI_API_KEY looks like a placeholder value.")
+            if not gemini_tts_model:
+                add_issue(tts_issue_severity, "tts", "missing_tts_gemini_model", "TTS_GEMINI_MODEL is required when TTS_PROVIDER=gemini.")
+            elif not re.fullmatch(r"(?:models/)?gemini-[A-Za-z0-9._-]*tts[A-Za-z0-9._-]*", gemini_tts_model, re.IGNORECASE):
+                add_issue(tts_issue_severity, "tts", "unsupported_tts_gemini_model", "TTS_GEMINI_MODEL must identify a Gemini speech-generation model.")
+            if not gemini_tts_voice:
+                add_issue(tts_issue_severity, "tts", "missing_tts_gemini_voice", "TTS_GEMINI_VOICE is required when TTS_PROVIDER=gemini.")
+            elif not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", gemini_tts_voice):
+                add_issue(tts_issue_severity, "tts", "invalid_tts_gemini_voice", "TTS_GEMINI_VOICE contains unsupported characters.")
+            if not _is_http_url(str(self.gemini_base_url or "").rstrip("/")):
+                add_issue(tts_issue_severity, "tts", "invalid_tts_gemini_base_url", "GEMINI_BASE_URL must be an http(s) URL for Gemini TTS rendering.")
+
+        if policy.deployed and self.effective_media_render_worker_mode != "disabled" and not self.tts_provider_configured:
+            add_issue(
+                "error",
+                "tts",
+                "tts_provider_not_configured_in_deployed",
+                "Deployed media rendering requires a fully configured TTS provider.",
+            )
 
         db_url_value = str(self.db_url or "").strip()
         if not db_url_value:

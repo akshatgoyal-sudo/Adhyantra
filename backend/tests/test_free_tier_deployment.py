@@ -29,6 +29,11 @@ def test_render_blueprint_is_one_free_embedded_web_service():
     assert env["MEDIA_RENDER_WORKER_MODE"]["value"] == "embedded"
     assert env["MEDIA_STORAGE_BACKEND"]["value"] == "supabase"
     assert env["SUPABASE_SERVICE_ROLE_KEY"] == {"key": "SUPABASE_SERVICE_ROLE_KEY", "sync": False}
+    assert env["TTS_PROVIDER"]["value"] == "gemini"
+    assert env["TTS_GEMINI_MODEL"]["value"] == "gemini-2.5-flash-preview-tts"
+    assert env["GEMINI_API_KEY"] == {"key": "GEMINI_API_KEY", "sync": False}
+    assert "TTS_OPENAI_API_KEY" not in env
+    assert all("NEXT_PUBLIC" not in key for key in env if "GEMINI" in key)
 
 
 def test_non_sqlite_engine_uses_conservative_pool_defaults():

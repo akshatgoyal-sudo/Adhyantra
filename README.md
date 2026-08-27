@@ -43,7 +43,8 @@ Conditionally required names:
 - Resend OTP: `EMAIL_FROM_ADDRESS`, `RESEND_API_KEY`
 - Stripe billing: `PAYMENT_PROVIDER`, `PAYMENT_PREMIUM_PRICE_ID`, `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`
 - Razorpay billing: `PAYMENT_PROVIDER`, `PAYMENT_PREMIUM_PRICE_ID`, `PAYMENT_RAZORPAY_KEY_ID`, `PAYMENT_RAZORPAY_KEY_SECRET`, `PAYMENT_RAZORPAY_WEBHOOK_SECRET`
-- OpenAI TTS: `TTS_PROVIDER`, `TTS_OPENAI_API_KEY`
+- Free-tier launch TTS: `TTS_PROVIDER=gemini`, `GEMINI_API_KEY`, `TTS_GEMINI_MODEL`, `TTS_GEMINI_VOICE`
+- Optional OpenAI TTS remains available through `TTS_PROVIDER=openai` and `TTS_OPENAI_API_KEY`.
 - Deployed origins/security: `FRONTEND_ORIGIN`, `BACKEND_PUBLIC_URL`, `CORS_ALLOWED_ORIGINS`, `TRUSTED_HOSTS`, `SECURE_SESSION_COOKIES`
 
 Optional configuration names are grouped in `.env.example`: `APP_ENV`, release metadata, AI provider/model/base-URL settings, `EXAM_GURU_EXAM`, `EXAM_GURU_SUBJECT`, frontend API/debug settings, session/cookie settings, OTP limits, SMTP/Resend settings, payment settings, TTS settings, media-worker/storage settings, and staging smoke-check settings. `.env.staging.example` documents the stricter deployed contract with blank secret fields.
@@ -90,7 +91,9 @@ Supported variables:
 - `PAYMENT_PROVIDER`, `PAYMENT_TIMEOUT_SECONDS`, `PAYMENT_PREMIUM_PRICE_ID`: billing provider selection and shared checkout configuration. Billing stays disabled by default.
 - `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`, `PAYMENT_STRIPE_BASE_URL`: Stripe checkout/webhook settings.
 - `PAYMENT_RAZORPAY_KEY_ID`, `PAYMENT_RAZORPAY_KEY_SECRET`, `PAYMENT_RAZORPAY_WEBHOOK_SECRET`, `PAYMENT_RAZORPAY_BASE_URL`, `PAYMENT_RAZORPAY_TOTAL_COUNT`: Razorpay subscription/webhook settings.
-- `TTS_PROVIDER`, `TTS_TIMEOUT_SECONDS`, `TTS_OUTPUT_FORMAT`, `TTS_OPENAI_MODEL`, `TTS_OPENAI_API_KEY`, `TTS_OPENAI_BASE_URL`, `TTS_OPENAI_VOICE`: optional TTS generation settings; disabled by default.
+- `TTS_PROVIDER`, `TTS_TIMEOUT_SECONDS`, `TTS_MAX_INPUT_CHARACTERS`, `TTS_MAX_SEGMENTS`: TTS provider, finite request timeout, and usage bounds. Local development remains disabled by default; deployed media workers fail validation unless a provider is fully configured.
+- `TTS_GEMINI_MODEL`, `TTS_GEMINI_VOICE`, `GEMINI_API_KEY`, `GEMINI_BASE_URL`: Gemini speech generation. The launch default model is configurable and Gemini PCM output is wrapped as validated 24 kHz mono 16-bit WAV without FFmpeg.
+- `TTS_OUTPUT_FORMAT`, `TTS_OPENAI_MODEL`, `TTS_OPENAI_API_KEY`, `TTS_OPENAI_BASE_URL`, `TTS_OPENAI_VOICE`: optional OpenAI TTS settings. OpenAI retains its configured output format, including MP3, and is not an automatic Gemini fallback.
 - `MEDIA_STORAGE_BACKEND`, `MEDIA_RENDER_OUTPUT_DIR`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_MEDIA_BUCKET`, `MEDIA_STORAGE_REQUEST_TIMEOUT_SECONDS`, `MEDIA_STORAGE_MAX_OBJECT_BYTES`, `MEDIA_SIGNED_URL_TTL_SECONDS`: explicit local or durable private Supabase media storage. The service-role key is backend-only.
 - `MEDIA_RENDER_WORKER_MODE`, `MEDIA_RENDER_WORKER_POLL_SECONDS`, `MEDIA_RENDER_CLAIM_LEASE_SECONDS`, `MEDIA_RENDER_WORKER_HEARTBEAT_SECONDS`, `MEDIA_RENDER_WORKER_STALE_AFTER_SECONDS`, `MEDIA_RENDER_ARTIFACT_RETENTION_HOURS`: embedded media queue configuration.
 - `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS`, `DB_POOL_PRE_PING`: conservative non-SQLite connection-pool controls.

@@ -44,7 +44,17 @@ services:
       - key: EMAIL_TRANSPORT
         value: resend
       - key: TTS_PROVIDER
-        value: openai
+        value: gemini
+      - key: TTS_GEMINI_MODEL
+        value: gemini-2.5-flash-preview-tts
+      - key: TTS_GEMINI_VOICE
+        value: Kore
+      - key: TTS_TIMEOUT_SECONDS
+        value: "60"
+      - key: TTS_MAX_INPUT_CHARACTERS
+        value: "4096"
+      - key: TTS_MAX_SEGMENTS
+        value: "24"
       - key: AI_PROVIDER
         value: gemini
       - key: AI_PROVIDER_CHAIN
@@ -68,8 +78,6 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM_ADDRESS
-        sync: false
-      - key: TTS_OPENAI_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false
