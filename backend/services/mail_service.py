@@ -6,10 +6,12 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from html import escape
 import logging
+import httpx
 import resend
 import smtplib
 import ssl
-from typing import Protocol
+from typing import NoReturn, Protocol
+from urllib.parse import urlparse
 
 from backend.config import get_settings
 from backend.services.ops_logging import email_log_context, log_event
@@ -21,6 +23,19 @@ settings = get_settings()
 
 class EmailDeliveryError(RuntimeError):
     """Raised when the configured email transport cannot deliver a message."""
+
+    def __init__(
+        self,
+        message: str = "Email delivery failed.",
+        *,
+        reason: str = "email_delivery_failed",
+        retryable: bool = False,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.retryable = retryable
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -37,6 +52,7 @@ class EmailDeliveryResult:
     delivery_mode: str
     transport: str
     external_delivery: bool
+    provider_message_identifier_returned: bool = False
 
 
 class EmailTransport(Protocol):
@@ -68,6 +84,8 @@ def _normalize_transport(value: str | None) -> str:
         return "smtp"
     if candidate == "resend":
         return "resend"
+    if candidate == "brevo":
+        return "brevo"
     if candidate == "console":
         return "console"
     return candidate
@@ -192,6 +210,143 @@ class ResendEmailTransport:
             transport=self.name,
             external_delivery=self.external_delivery,
         )
+
+
+@dataclass(frozen=True)
+class BrevoEmailTransport:
+    name: str = "brevo"
+    external_delivery: bool = True
+
+    def send(self, email: OutboundEmail) -> EmailDeliveryResult:
+        api_key = str(settings.brevo_api_key or "").strip()
+        if not api_key:
+            raise EmailDeliveryError(
+                "Brevo email delivery is not configured.",
+                reason="brevo_configuration_invalid",
+            )
+
+        base_url = str(settings.brevo_base_url or "").strip().rstrip("/")
+        parsed_base_url = urlparse(base_url)
+        if (
+            parsed_base_url.scheme != "https"
+            or not parsed_base_url.netloc
+            or parsed_base_url.username
+            or parsed_base_url.password
+            or parsed_base_url.query
+            or parsed_base_url.fragment
+            or (settings.environment_policy.deployed and parsed_base_url.hostname != "api.brevo.com")
+        ):
+            raise EmailDeliveryError(
+                "Brevo email delivery is not configured.",
+                reason="brevo_configuration_invalid",
+            )
+        timeout_seconds = max(int(settings.brevo_timeout_seconds or 15), 1)
+        sender_address = str(settings.email_from_address or "").strip()
+        if not sender_address:
+            raise EmailDeliveryError(
+                "Brevo email delivery is not configured.",
+                reason="brevo_configuration_invalid",
+            )
+
+        payload: dict[str, object] = {
+            "sender": {
+                "name": str(settings.email_from_name or "").strip() or "Adhyantra",
+                "email": sender_address,
+            },
+            "to": [{"email": email.recipient_email}],
+            "subject": email.subject,
+            "textContent": email.text_body,
+            "htmlContent": email.html_body or email.text_body,
+        }
+        reply_to = str(email.reply_to_email or settings.email_reply_to_address or "").strip()
+        if reply_to:
+            payload["replyTo"] = {"email": reply_to}
+
+        log_event(
+            logger,
+            logging.INFO,
+            "email.delivery_attempt",
+            **email_log_context(email.recipient_email),
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+        )
+
+        try:
+            with httpx.Client(timeout=timeout_seconds) as client:
+                response = client.post(
+                    f"{base_url}/smtp/email",
+                    headers={
+                        "accept": "application/json",
+                        "api-key": api_key,
+                        "content-type": "application/json",
+                    },
+                    json=payload,
+                )
+        except httpx.TimeoutException:
+            self._raise_failure(email, reason="brevo_timeout", retryable=True)
+        except httpx.TransportError:
+            self._raise_failure(email, reason="brevo_transport_failure", retryable=True)
+
+        status_code = int(response.status_code)
+        if status_code != 201:
+            retryable = status_code == 429 or status_code in {500, 502, 503, 504}
+            reason = "brevo_temporary_failure" if retryable else "brevo_request_rejected"
+            self._raise_failure(email, reason=reason, retryable=retryable, status_code=status_code)
+
+        try:
+            response_payload = response.json()
+        except ValueError:
+            response_payload = None
+        message_identifier = response_payload.get("messageId") if isinstance(response_payload, dict) else None
+        if not isinstance(message_identifier, str) or not message_identifier.strip():
+            self._raise_failure(email, reason="brevo_invalid_response", retryable=False, status_code=status_code)
+
+        log_event(
+            logger,
+            logging.INFO,
+            "email.delivery_succeeded",
+            **email_log_context(email.recipient_email),
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+            provider_message_identifier_returned=True,
+        )
+        return EmailDeliveryResult(
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+            provider_message_identifier_returned=True,
+        )
+
+    def _raise_failure(
+        self,
+        email: OutboundEmail,
+        *,
+        reason: str,
+        retryable: bool,
+        status_code: int | None = None,
+    ) -> NoReturn:
+        log_event(
+            logger,
+            logging.ERROR,
+            "email.delivery_failed",
+            **email_log_context(email.recipient_email),
+            delivery_mode="email",
+            transport=self.name,
+            external_delivery=self.external_delivery,
+            failure_reason=reason,
+            retryable=retryable,
+            provider_status_class=f"{status_code // 100}xx" if status_code else None,
+        )
+        raise EmailDeliveryError(
+            "Email delivery failed.",
+            reason=reason,
+            retryable=retryable,
+            status_code=status_code,
+        ) from None
+
+
 @dataclass(frozen=True)
 class SmtpEmailTransport:
     name: str = "smtp"
@@ -292,6 +447,9 @@ def _resolve_email_transport(delivery_mode: str) -> EmailTransport:
 
     if transport_name == "resend":
         return ResendEmailTransport()
+
+    if transport_name == "brevo":
+        return BrevoEmailTransport()
 
     log_event(
         logger,

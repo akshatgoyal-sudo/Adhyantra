@@ -35,9 +35,11 @@ def test_render_blueprint_is_one_free_embedded_web_service():
     assert env["ALLOW_MOCK_AI_IN_PRODUCTION"]["value"] == "false"
     assert env["GEMINI_MODEL"]["value"] == "gemini-3.6-flash"
     assert "GROQ_MODEL" not in env
-    assert env["EMAIL_TRANSPORT"]["value"] == "smtp"
-    assert env["SMTP_HOST"]["value"] == "smtp.gmail.com"
-    assert env["SMTP_PASSWORD"] == {"key": "SMTP_PASSWORD", "sync": False}
+    assert env["EMAIL_TRANSPORT"]["value"] == "brevo"
+    assert env["BREVO_BASE_URL"]["value"] == "https://api.brevo.com/v3"
+    assert env["BREVO_API_KEY"] == {"key": "BREVO_API_KEY", "sync": False}
+    assert "SMTP_HOST" not in env
+    assert "SMTP_PASSWORD" not in env
     assert env["PAYMENT_PROVIDER"]["value"] == "disabled"
     assert "RESEND_API_KEY" not in env
     assert env["GEMINI_API_KEY"] == {"key": "GEMINI_API_KEY", "sync": False}

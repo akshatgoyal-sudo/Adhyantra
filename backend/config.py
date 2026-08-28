@@ -953,6 +953,14 @@ def _is_http_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def _is_valid_email_address(value: str | None) -> bool:
+    candidate = str(value or "").strip()
+    if not candidate or any(character.isspace() for character in candidate):
+        return False
+    local_part, separator, domain = candidate.rpartition("@")
+    return separator == "@" and bool(local_part) and "." in domain and not domain.startswith(".") and not domain.endswith(".")
+
+
 def _is_localhost_origin(value: str) -> bool:
     parsed = urlparse(str(value or "").strip())
     hostname = str(parsed.hostname or "").lower()
@@ -1010,13 +1018,15 @@ def _normalize_email_transport(value: str | None) -> str:
         return "smtp"
     if candidate == "resend":
         return "resend"
+    if candidate == "brevo":
+        return "brevo"
     if candidate == "console":
         return "console"
     return candidate
 
 
-SUPPORTED_EMAIL_TRANSPORTS: tuple[str, ...] = ("smtp", "resend", "console")
-SUPPORTED_EXTERNAL_EMAIL_TRANSPORTS: tuple[str, ...] = ("smtp", "resend")
+SUPPORTED_EMAIL_TRANSPORTS: tuple[str, ...] = ("smtp", "resend", "brevo", "console")
+SUPPORTED_EXTERNAL_EMAIL_TRANSPORTS: tuple[str, ...] = ("smtp", "resend", "brevo")
 
 
 def _describe_email_transports(*, include_console: bool = True) -> str:
@@ -1195,6 +1205,9 @@ class Settings:
     smtp_use_ssl: bool = field(default_factory=lambda: _env_bool("SMTP_USE_SSL", False))
     smtp_timeout_seconds: int = field(default_factory=lambda: _env_int("SMTP_TIMEOUT_SECONDS", 15))
     resend_api_key: str = field(default_factory=lambda: _env("RESEND_API_KEY", ""))
+    brevo_api_key: str = field(default_factory=lambda: _env("BREVO_API_KEY", ""))
+    brevo_base_url: str = field(default_factory=lambda: _env("BREVO_BASE_URL", "https://api.brevo.com/v3"))
+    brevo_timeout_seconds: int = field(default_factory=lambda: _env_int("BREVO_TIMEOUT_SECONDS", 15))
     auth_dev_return_otp: bool = field(default_factory=lambda: _env_bool("AUTH_DEV_RETURN_OTP", False))
     allow_mock_ai_in_production: bool = field(default_factory=lambda: _env_bool("ALLOW_MOCK_AI_IN_PRODUCTION", False))
     allow_sqlite_in_production: bool = field(default_factory=lambda: _env_bool("ALLOW_SQLITE_IN_PRODUCTION", False))
@@ -1571,6 +1584,8 @@ class Settings:
             "smtp_tls_enabled": bool(self.smtp_use_tls and not self.smtp_use_ssl),
             "smtp_ssl_enabled": bool(self.smtp_use_ssl),
             "smtp_auth_configured": bool(str(self.smtp_username or "").strip()),
+            "brevo_api_key_configured": bool(str(self.brevo_api_key or "").strip()),
+            "brevo_https_configured": urlparse(str(self.brevo_base_url or "").strip()).scheme == "https",
         }
 
     def _validate_real_email_transport_config(self, add_issue, *, policy) -> None:
@@ -1593,6 +1608,33 @@ class Settings:
                     "missing_resend_api_key",
                     "RESEND_API_KEY is required when EMAIL_TRANSPORT=resend.",
                 )
+            return
+
+        if email_transport == "brevo":
+            api_key = str(self.brevo_api_key or "").strip()
+            parsed_base_url = urlparse(str(self.brevo_base_url or "").strip())
+            if not api_key:
+                add_issue("error", "email", "missing_brevo_api_key", "BREVO_API_KEY is required when EMAIL_TRANSPORT=brevo.")
+            elif _looks_like_placeholder_secret(api_key):
+                add_issue(
+                    "error" if policy.deployed else "warning",
+                    "secrets",
+                    "placeholder_brevo_api_key",
+                    "BREVO_API_KEY looks like a placeholder value; set a real secret before enabling Brevo delivery.",
+                )
+            if (
+                parsed_base_url.scheme != "https"
+                or not parsed_base_url.netloc
+                or parsed_base_url.username
+                or parsed_base_url.password
+                or parsed_base_url.query
+                or parsed_base_url.fragment
+            ):
+                add_issue("error", "email", "invalid_brevo_base_url", "BREVO_BASE_URL must be a credential-free HTTPS URL without a query string or fragment.")
+            elif policy.deployed and str(parsed_base_url.hostname or "").lower() != "api.brevo.com":
+                add_issue("error", "email", "untrusted_brevo_host", "Deployed BREVO_BASE_URL must use the official api.brevo.com host.")
+            if int(self.brevo_timeout_seconds or 0) < 1:
+                add_issue("error", "email", "invalid_brevo_timeout", "BREVO_TIMEOUT_SECONDS must be at least 1.")
             return
 
         if not str(self.smtp_host or "").strip():
@@ -1761,6 +1803,8 @@ class Settings:
             if email_delivery_mode == "email":
                 if not str(self.email_from_address or "").strip():
                     add_issue("error", "email", "missing_from_address", "EMAIL_FROM_ADDRESS is required for real email delivery.")
+                elif not _is_valid_email_address(self.email_from_address):
+                    add_issue("error", "email", "invalid_from_address", "EMAIL_FROM_ADDRESS must be a valid email address.")
                 self._validate_real_email_transport_config(add_issue, policy=policy)
                 if bool(self.auth_dev_return_otp):
                     add_issue(

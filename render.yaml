@@ -42,18 +42,12 @@ services:
       - key: EMAIL_DELIVERY_MODE
         value: email
       - key: EMAIL_TRANSPORT
-        value: smtp
+        value: brevo
       - key: EMAIL_FROM_NAME
         value: Adhyantra
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USE_TLS
-        value: "true"
-      - key: SMTP_USE_SSL
-        value: "false"
-      - key: SMTP_TIMEOUT_SECONDS
+      - key: BREVO_BASE_URL
+        value: https://api.brevo.com/v3
+      - key: BREVO_TIMEOUT_SECONDS
         value: "15"
       - key: AUTH_DEV_RETURN_OTP
         value: "false"
@@ -99,9 +93,7 @@ services:
         sync: false
       - key: EMAIL_FROM_ADDRESS
         sync: false
-      - key: SMTP_USERNAME
-        sync: false
-      - key: SMTP_PASSWORD
+      - key: BREVO_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false

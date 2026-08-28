@@ -27,7 +27,7 @@ def _production_settings(**overrides) -> Settings:
         "cors_allowed_origins": "https://frontend.invalid",
         "trusted_hosts": "backend.invalid",
         "email_otp_delivery_mode": "email",
-        "email_transport": "smtp",
+        "email_transport": "brevo",
         "email_from_address": "beta-sender@example.invalid",
         "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
@@ -35,6 +35,9 @@ def _production_settings(**overrides) -> Settings:
         "smtp_password": "unit-test-google-app-password",
         "smtp_use_tls": True,
         "smtp_use_ssl": False,
+        "brevo_api_key": "unit-test-brevo-material",
+        "brevo_base_url": "https://api.brevo.com/v3",
+        "brevo_timeout_seconds": 15,
         "auth_dev_return_otp": False,
         "tts_provider": "gemini",
         "tts_gemini_model": "gemini-2.5-flash-preview-tts",
@@ -136,18 +139,13 @@ def test_text_and_tts_model_defaults_are_current_and_distinct() -> None:
     assert settings.tts_gemini_model != settings.gemini_model
 
 
-def test_production_gmail_smtp_accepts_authenticated_starttls() -> None:
+def test_production_brevo_transport_accepts_https_configuration() -> None:
     settings = _production_settings()
     result = settings.validate_runtime_config()
 
     assert result.ok is True
-    assert not {issue.code for issue in result.errors} & {
-        "missing_gmail_smtp_username",
-        "missing_gmail_smtp_password",
-        "gmail_smtp_requires_starttls",
-        "gmail_sender_username_mismatch",
-    }
-    assert settings.smtp_password not in str(result.to_public_dict())
+    assert not {issue.code for issue in result.errors} & {"missing_brevo_api_key", "invalid_brevo_base_url"}
+    assert settings.brevo_api_key not in str(result.to_public_dict())
 
 
 @pytest.mark.parametrize(
@@ -162,7 +160,7 @@ def test_production_gmail_smtp_accepts_authenticated_starttls() -> None:
     ],
 )
 def test_production_gmail_smtp_rejects_unsafe_configuration(overrides: dict, expected_code: str) -> None:
-    result = _production_settings(**overrides).validate_runtime_config()
+    result = _production_settings(email_transport="smtp", **overrides).validate_runtime_config()
 
     assert expected_code in {issue.code for issue in result.errors}
 
@@ -193,17 +191,16 @@ def test_render_blueprint_uses_strict_live_ai_gmail_and_disabled_payments() -> N
     assert env["ALLOW_MOCK_AI_IN_PRODUCTION"]["value"] == "false"
     assert env["GEMINI_MODEL"]["value"] == "gemini-3.6-flash"
     assert "GROQ_MODEL" not in env
-    assert env["EMAIL_TRANSPORT"]["value"] == "smtp"
-    assert env["SMTP_HOST"]["value"] == "smtp.gmail.com"
-    assert env["SMTP_PORT"]["value"] == "587"
-    assert env["SMTP_USE_TLS"]["value"] == "true"
-    assert env["SMTP_USE_SSL"]["value"] == "false"
+    assert env["EMAIL_TRANSPORT"]["value"] == "brevo"
+    assert env["BREVO_BASE_URL"]["value"] == "https://api.brevo.com/v3"
+    assert env["BREVO_TIMEOUT_SECONDS"]["value"] == "15"
     assert env["PAYMENT_PROVIDER"]["value"] == "disabled"
     assert "RESEND_API_KEY" not in env
     assert env["GEMINI_API_KEY"] == {"key": "GEMINI_API_KEY", "sync": False}
     assert "GROQ_API_KEY" not in env
-    assert env["SMTP_USERNAME"] == {"key": "SMTP_USERNAME", "sync": False}
-    assert env["SMTP_PASSWORD"] == {"key": "SMTP_PASSWORD", "sync": False}
+    assert env["BREVO_API_KEY"] == {"key": "BREVO_API_KEY", "sync": False}
+    assert "SMTP_USERNAME" not in env
+    assert "SMTP_PASSWORD" not in env
     serialized = (PROJECT_ROOT / "render.yaml").read_text(encoding="utf-8").lower()
     assert "type: worker" not in serialized
     assert "alembic" not in serialized

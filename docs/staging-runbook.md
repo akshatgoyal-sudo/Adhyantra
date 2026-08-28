@@ -20,14 +20,16 @@ Minimum staging expectations:
 - HTTPS `FRONTEND_ORIGIN` and `BACKEND_PUBLIC_URL`
 - explicit `CORS_ALLOWED_ORIGINS`
 - `TRUSTED_HOSTS` containing the backend public host
-- `EMAIL_DELIVERY_MODE=email` and either `EMAIL_TRANSPORT=smtp` or `EMAIL_TRANSPORT=resend`
-- SMTP requires the documented `SMTP_*` settings; Resend requires `RESEND_API_KEY`
+- `EMAIL_DELIVERY_MODE=email` and one of `EMAIL_TRANSPORT=brevo`, `smtp`, or `resend`
+- Brevo requires `BREVO_API_KEY` and a credential-free HTTPS `BREVO_BASE_URL`; SMTP requires the documented `SMTP_*` settings; Resend requires `RESEND_API_KEY`
 - `SECURE_SESSION_COOKIES=true`
 - `AUTH_DEV_RETURN_OTP=false`
 
 If the backend is reached directly during a dry run, include that direct host in `TRUSTED_HOSTS`. For real staging, route traffic through HTTPS/reverse proxy.
 
 This runbook remains platform-neutral, while the repository also contains a separate `render.yaml` for the reviewed free-tier launch topology. Neither file establishes that Render or Vercel is currently deployed or healthy.
+
+For the tracked Render Free service, select Brevo rather than SMTP. Render Free blocks outbound ports 25, 465, and 587, so Gmail SMTP cannot operate there even when its credentials are correct. Brevo sends transactional mail over HTTPS. Keep its API key only in Render's backend secret store. An individually verified Gmail sender is acceptable for initial beta testing, but Brevo may rewrite free-address senders and delivery can be less recognizable; move to an authenticated custom-domain sender when a domain is available. The Vercel hostname is not an owned email domain.
 
 ## 2. Deployment Preflight
 

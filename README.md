@@ -10,7 +10,7 @@ UPSC has the deepest native knowledge-base coverage. SSC and Banking are selecta
 - Next.js 16.3.3, React 18.3.1, and TypeScript frontend using the Pages Router
 - Local markdown knowledge base with dynamically discovered subject-scoped topics and shared-corpus fallback
 - Gemini-first AI provider abstraction with Groq fallback, strict live-only production behavior, and explicit development/test mock mode
-- Email-OTP authentication over console, SMTP, or Resend, with DB-backed sessions
+- Email-OTP authentication over console, Brevo HTTPS, SMTP, or Resend, with DB-backed sessions
 - Stripe/Razorpay billing adapters, premium entitlements and usage enforcement, disabled by default until configured
 - Role-based content and operations administration endpoints
 - Lesson exports, TTS audio jobs, and scene/narration ZIP packages; no encoded MP4 renderer
@@ -39,6 +39,7 @@ Conditionally required names:
 
 - PostgreSQL: `EXAM_GURU_DB_URL`
 - Verified free-tier launch AI: `GEMINI_API_KEY` (Gemini 3.6 Flash). `GROQ_API_KEY` remains an optional non-launch provider setting.
+- Render Free OTP delivery: `EMAIL_FROM_ADDRESS`, `BREVO_API_KEY`
 - SMTP OTP: `EMAIL_FROM_ADDRESS`, `SMTP_HOST`; `SMTP_USERNAME` and `SMTP_PASSWORD` when the server requires authentication
 - Resend OTP: `EMAIL_FROM_ADDRESS`, `RESEND_API_KEY`
 - Stripe billing: `PAYMENT_PROVIDER`, `PAYMENT_PREMIUM_PRICE_ID`, `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`
@@ -47,7 +48,7 @@ Conditionally required names:
 - Optional OpenAI TTS remains available through `TTS_PROVIDER=openai` and `TTS_OPENAI_API_KEY`.
 - Deployed origins/security: `FRONTEND_ORIGIN`, `BACKEND_PUBLIC_URL`, `CORS_ALLOWED_ORIGINS`, `TRUSTED_HOSTS`, `SECURE_SESSION_COOKIES`
 
-Optional configuration names are grouped in `.env.example`: `APP_ENV`, release metadata, AI provider/model/base-URL settings, `EXAM_GURU_EXAM`, `EXAM_GURU_SUBJECT`, frontend API/debug settings, session/cookie settings, OTP limits, SMTP/Resend settings, payment settings, TTS settings, media-worker/storage settings, and staging smoke-check settings. `.env.staging.example` documents the stricter deployed contract with blank secret fields.
+Optional configuration names are grouped in `.env.example`: `APP_ENV`, release metadata, AI provider/model/base-URL settings, `EXAM_GURU_EXAM`, `EXAM_GURU_SUBJECT`, frontend API/debug settings, session/cookie settings, OTP limits, Brevo/SMTP/Resend settings, payment settings, TTS settings, media-worker/storage settings, and staging smoke-check settings. `.env.staging.example` documents the stricter deployed contract with blank secret fields.
 
 Copy `.env.example` to `.env` in the project root if you want to override defaults for the backend.
 
@@ -81,13 +82,14 @@ Supported variables:
 - `SESSION_COOKIE_DOMAIN` / `SESSION_COOKIE_PATH`: optional cookie scope settings for deployments that need a shared domain or non-root path.
 - `SECURE_SESSION_COOKIES`: force secure session cookies. `APP_ENV=staging` and `APP_ENV=production` also force secure cookies.
 - `EMAIL_DELIVERY_MODE`: defaults to `console` for local development. Use `email` or `smtp` for real OTP email delivery. `EMAIL_OTP_DELIVERY_MODE` is still accepted as a backward-compatible alias.
-- `EMAIL_TRANSPORT`: real-email transport selector. `smtp` and `resend` are implemented; `EMAIL_PROVIDER` is accepted as a compatibility alias. Console delivery is selected through `EMAIL_DELIVERY_MODE=console`, not as a deployed transport.
+- `EMAIL_TRANSPORT`: real-email transport selector. `brevo`, `smtp`, and `resend` are implemented; `EMAIL_PROVIDER` is accepted as a compatibility alias. Console delivery is selected through `EMAIL_DELIVERY_MODE=console`, not as a deployed transport.
 - `AUTH_DEV_RETURN_OTP`: defaults to `false`. Set it to `true` only with `EMAIL_DELIVERY_MODE=console` when you intentionally want the local auth response to expose the development OTP in the browser. It is ignored for real email delivery and suppressed in staging/production.
 - `EMAIL_OTP_MAX_VERIFY_ATTEMPTS_PER_HOUR_PER_EMAIL`: caps verification attempts for one email in a rolling hour.
 - `EMAIL_OTP_MAX_VERIFY_ATTEMPTS_PER_HOUR_PER_IP`: caps verification attempts from one connection in a rolling hour.
 - `EMAIL_FROM_NAME`, `EMAIL_FROM_ADDRESS`, `EMAIL_REPLY_TO_ADDRESS`: sender and reply-to identity for real email delivery.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_USE_SSL`, `SMTP_TIMEOUT_SECONDS`: SMTP transport settings used when real email delivery is enabled. `SMTP_USE_TLS=true` uses STARTTLS; `SMTP_USE_SSL=true` uses implicit TLS and skips STARTTLS.
-- The initial beta uses Gmail SMTP at `smtp.gmail.com:587` with STARTTLS, matching `EMAIL_FROM_ADDRESS` and `SMTP_USERNAME`, 2-Step Verification, and a Google App Password. Never use the normal Google account password. `EMAIL_REPLY_TO_ADDRESS` remains optional.
+- `BREVO_API_KEY`, `BREVO_BASE_URL`, `BREVO_TIMEOUT_SECONDS`: Brevo HTTPS transactional delivery. The key is sent only in the `api-key` header. The tracked Render Free configuration uses `https://api.brevo.com/v3` with a 15-second timeout.
+- Gmail SMTP can still be used outside Render Free at `smtp.gmail.com:587` with STARTTLS, matching `EMAIL_FROM_ADDRESS` and `SMTP_USERNAME`, 2-Step Verification, and a Google App Password. Render Free blocks outbound SMTP ports 25, 465, and 587, so the tracked Render service uses Brevo HTTPS instead. `EMAIL_REPLY_TO_ADDRESS` remains optional.
 - `RESEND_API_KEY`: Resend credential required only when `EMAIL_TRANSPORT=resend`. The pinned Resend 2.4.0 SDK supports the `resend.api_key` and `resend.Emails.send(...)` API used by the backend.
 - `PAYMENT_PROVIDER`, `PAYMENT_TIMEOUT_SECONDS`, `PAYMENT_PREMIUM_PRICE_ID`: billing provider selection and shared checkout configuration. Billing stays disabled by default.
 - `PAYMENT_STRIPE_SECRET_KEY`, `PAYMENT_STRIPE_WEBHOOK_SECRET`, `PAYMENT_STRIPE_BASE_URL`: Stripe checkout/webhook settings.
@@ -102,7 +104,7 @@ Supported variables:
 - `ALLOW_SQLITE_IN_PRODUCTION`: defaults to `false`. Set to `true` only for an intentional small SQLite deployment.
 - `STAGING_BACKEND_URL`, `STAGING_FRONTEND_URL`, `STAGING_SMOKE_EMAIL`, `STAGING_SMOKE_SCENARIO`, `STAGING_SMOKE_TIMEOUT_SECONDS`: smoke-check inputs used by `npm run smoke:staging` and `npm run smoke:scenario`. Keep `STAGING_SMOKE_EMAIL` as a dedicated deployed verification mailbox; local deterministic demo accounts intentionally use the separate `@adhyantra.test` domain.
 
-For local real-email testing, copy `.env.example`, select `EMAIL_DELIVERY_MODE` and `EMAIL_TRANSPORT`, then supply only the corresponding SMTP or Resend fields in the untracked `.env`.
+For local real-email testing, copy `.env.example`, select `EMAIL_DELIVERY_MODE` and `EMAIL_TRANSPORT`, then supply only the corresponding Brevo, SMTP, or Resend fields in the untracked `.env`.
 
 Deployment config validation runs at backend startup when `APP_ENV=staging` or `APP_ENV=production`. The backend now resolves `APP_ENV` through one environment policy layer, so cookies, CORS, email delivery, dev OTP visibility, AI strictness, SQLite strictness, and default log level are controlled in one place. Staging and production fail fast for unsafe deployed defaults such as console email delivery, unsupported real-email transports, localhost CORS origins, or non-HTTPS deployed origins. Production additionally blocks mock AI and local SQLite unless explicitly allowed. Staging emits warnings for mock AI and SQLite so a staging box can boot intentionally while still making production gaps visible.
 
@@ -162,7 +164,7 @@ npm run dev
 
 ## Current product and deployment scope
 
-- Authentication uses expiring email OTP challenges and DB-backed session records. Local console delivery is for development only; SMTP and Resend are the external transports.
+- Authentication uses expiring email OTP challenges and DB-backed session records. Local console delivery is for development only; Brevo HTTPS, SMTP, and Resend are the external transports. A failed external delivery rolls back the pending account and OTP challenge before returning a sanitized 503.
 - Premium lesson modes, exports, and media jobs are protected by centralized authentication, entitlement, and usage enforcement. Billing adapters support Stripe and Razorpay, but the default provider is disabled and real checkout requires provider credentials and verified webhooks.
 - Admin APIs are role-gated for content review/import/workflow and operational visibility. They are not a substitute for an external identity or secrets-management platform.
 - Audio jobs can produce TTS files when configured. Video-style jobs produce downloadable ZIP archives containing scene manifests/assets and optional narration audio. They are not MP4 files or cinematic video encoding.
@@ -175,7 +177,7 @@ npm run dev
 - Use `.env.staging.example` as the staging environment contract. Values should be supplied through the staging platform secret manager or process environment, not committed with real secrets.
 - The staging example is intentionally not launchable as copied: preflight fails until `EXAM_GURU_DB_URL` is supplied, and live AI/email/billing credentials are required only for the providers enabled for that deployment.
 - Use `npm run ops:preflight -- --env-file .env.staging` before launch to reuse the current API config, worker config, media storage, and readiness expectations in one place.
-- Staging must use HTTPS `FRONTEND_ORIGIN`, HTTPS `BACKEND_PUBLIC_URL`, explicit `CORS_ALLOWED_ORIGINS`, explicit CORS methods/headers, `TRUSTED_HOSTS` or `BACKEND_PUBLIC_URL` for Host checks, real `EMAIL_DELIVERY_MODE=email`, either SMTP or Resend with its required settings, and `SECURE_SESSION_COOKIES=true`.
+- Staging must use HTTPS `FRONTEND_ORIGIN`, HTTPS `BACKEND_PUBLIC_URL`, explicit `CORS_ALLOWED_ORIGINS`, explicit CORS methods/headers, `TRUSTED_HOSTS` or `BACKEND_PUBLIC_URL` for Host checks, real `EMAIL_DELIVERY_MODE=email`, Brevo/SMTP/Resend with its required settings, and `SECURE_SESSION_COOKIES=true`.
 - `MEDIA_STORAGE_BACKEND=local` is for development and tests. Deployed production rejects it. With `MEDIA_STORAGE_BACKEND=supabase`, `MEDIA_RENDER_OUTPUT_DIR` is temporary working space and completed audio and ZIP scene packages are uploaded to an existing private bucket.
 - API and worker startup create and verify the configured local or mounted media directory idempotently before accepting render work. Health/readiness checks only inspect storage and never create it. Object-storage URIs such as `s3://...` are not supported by the current filesystem renderer.
 - `GET /health/live` is the lightweight process check. `GET /health/ready` is the deployment gate because it verifies boot state, DB readiness, and config sanity.
