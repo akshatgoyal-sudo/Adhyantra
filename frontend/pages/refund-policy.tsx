@@ -7,26 +7,27 @@ export default function RefundPolicyPage() {
       title="Refund Policy"
       description="A plain-language overview of how Adhyantra handles premium billing questions and refund requests."
       canonicalPath="/refund-policy"
+      notice="Payments and checkout are currently disabled, so Adhyantra is not accepting new charges in this beta."
       sections={[
         {
           title: "Premium billing",
           body: [
-            "Premium unlocks richer lesson media, advanced exports, and plan-based capabilities inside the same study workspace.",
-            "Billing state is managed from the account billing area so learners can see product-relevant plan status and next actions.",
+            "Premium describes richer lesson media, advanced exports, and plan-based capabilities inside the same study workspace.",
+            "Checkout is currently unavailable, and no public price or active purchase is offered in this beta.",
           ],
         },
         {
           title: "Refund requests",
           body: [
-            "If a payment issue or accidental charge occurs, contact support with the email used for Adhyantra so the team can review the account safely.",
-            "Refund handling may depend on the payment provider status, subscription timing, and whether premium access has already been used.",
+            "Because payments are disabled, the current beta does not create new Adhyantra charges that require a refund.",
+            "If you have a question about an earlier test or account entitlement, use the project’s published support contact without sharing payment secrets.",
           ],
         },
         {
           title: "Cancellations",
           body: [
-            "Cancellation and renewal states are reflected in account billing when provider updates are received.",
-            "Already generated study assets should remain available where the product supports downgrade-safe access.",
+            "There is no active self-service purchase, renewal, or cancellation flow while payments remain disabled.",
+            "Existing entitlement and generated-asset behavior remains governed by the signed-in account state.",
           ],
         },
       ]}

@@ -5,21 +5,21 @@ export default function ContactPage() {
     <PublicInfoPage
       eyebrow="Support"
       title="Contact Us"
-      description="How to reach Adhyantra for account, billing, product, or launch support questions."
+      description="How to prepare an account, sign-in, product, or launch support request for Adhyantra."
       canonicalPath="/contact"
       sections={[
         {
           title: "Support requests",
           body: [
-            "For account, sign-in, billing, or study workspace help, contact the Adhyantra team with the email connected to your account.",
+            "For account, sign-in, or study workspace help, use the project’s published support contact when one is available and identify the email connected to your account.",
             "Include the exam focus and a concise description of what you were trying to do so support can respond with the right context.",
           ],
         },
         {
-          title: "Billing questions",
+          title: "Plan questions",
           body: [
-            "For payment issues, mention whether the problem is about upgrade, renewal, cancellation, or account plan status.",
-            "Do not send full payment secrets or sensitive provider payloads through public contact messages.",
+            "Payments and checkout are currently disabled. Plan questions should describe the capability or entitlement you are trying to understand.",
+            "Never send passwords, sign-in codes, payment secrets, or sensitive provider details in a support message.",
           ],
         },
         {

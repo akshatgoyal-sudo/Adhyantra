@@ -1,0 +1,3 @@
+import styles from "./AuthExperience.module.css";
+export type AuthStepState="active"|"complete"|"pending";
+export function AuthStepIndicator({steps}:{steps:{step:string;label:string;state:AuthStepState}[]}){return <ol className={styles.stepper} aria-label="Sign-in progress">{steps.map(({step,label,state})=><li key={label} className={`${styles.step} ${state==="active"?styles.stepActive:""} ${state==="complete"?styles.stepComplete:""}`} aria-current={state==="active"?"step":undefined}><span className={styles.stepNumber} aria-hidden="true">{state==="complete"?"✓":step}</span><span>{label}</span></li>)}</ol>}

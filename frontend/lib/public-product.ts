@@ -35,11 +35,11 @@ export const PUBLIC_PRODUCT_PILLARS: PublicFeaturePillar[] = [
 export const PUBLIC_PREMIUM_HIGHLIGHTS: PublicPremiumHighlight[] = [
   {
     title: "Ready-made media",
-    summary: "Premium can turn lessons into ready-made audio and simple lesson-video outputs when you want something usable outside Tutor.",
+    summary: "Premium entitlements can add lesson audio and structured scene/narration ZIP packages for repeated revision.",
   },
   {
     title: "Richer lesson flows",
-    summary: "Premium opens video lecture, revision video, and crash-course video lesson modes for more guided study sessions.",
+    summary: "Eligible lesson modes can prepare narration, scene structure, and reusable study packages without claiming MP4 video output.",
   },
   {
     title: "Advanced downloads",
@@ -68,13 +68,13 @@ export const PUBLIC_PLAN_COMPARISON: PublicPlanComparison[] = [
     summary: "Premium adds media-ready lesson workflows and richer exports while staying attached to the same learner account and study context.",
     features: [
       "Ready-made lesson audio",
-      "Simple lesson-video generation",
-      "Video lecture, revision video, and crash-course video modes",
+      "Scene and narration ZIP packages",
+      "Media-ready lesson structures for repeated revision",
       "Advanced lesson downloads including slide outlines and audio-ready scripts",
     ],
-    note: "Premium checkout starts from your signed-in account so the plan stays linked to the right learner workspace.",
+    note: "Payments are currently disabled. These capabilities describe entitlement boundaries, not an active checkout offer.",
   },
 ];
 
 export const PUBLIC_PRICING_TRANSITION_NOTE =
-  "Adhyantra keeps pricing and upgrades tied to a real learner account. Public pages explain the product clearly, while secure checkout starts only after sign-in.";
+  "Payments are currently disabled. Public pages explain available features, while sign-in opens the beta study workspace without starting a checkout.";

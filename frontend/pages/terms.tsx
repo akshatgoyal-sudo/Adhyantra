@@ -18,8 +18,8 @@ export default function TermsPage() {
         {
           title: "Accounts and access",
           body: [
-            "Your account keeps your study progress, settings, premium state, and generated learning assets tied to your authenticated email.",
-            "Premium features depend on active billing status and may change as plans, provider support, or product capabilities evolve.",
+            "Your account keeps your study progress, settings, entitlement state, and generated learning assets tied to your authenticated email.",
+            "Payments are currently disabled. Premium capabilities may change as plans, provider support, or product capabilities evolve.",
           ],
         },
         {
