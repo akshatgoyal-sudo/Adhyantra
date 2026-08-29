@@ -1,0 +1,2 @@
+import type { ReactNode } from "react"; import styles from "./ui.module.css";
+export function PageHeader({title,description,eyebrow,actions}:{title:string;description?:string;eyebrow?:string;actions?:ReactNode}){return <header className={styles.pageHeader}><div>{eyebrow?<div className={styles.eyebrow}>{eyebrow}</div>:null}<h1 className={styles.pageTitle}>{title}</h1>{description?<p className={styles.pageDescription}>{description}</p>:null}</div>{actions}</header>}

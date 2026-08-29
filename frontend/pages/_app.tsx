@@ -4,38 +4,21 @@ import { useRouter } from "next/router";
 import { useEffect } from "react";
 
 import AuthGate from "../components/AuthGate";
-import ProductSessionBar from "../components/ProductSessionBar";
+import ApplicationShell from "../components/ApplicationShell";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { getInternalRobotsContent, isPublicMetadataRoute } from "../lib/seo";
-import { resolveThemePreference, storeThemePreference, systemPrefersDarkTheme } from "../lib/theme";
+import { applyThemePreference, storeThemePreference } from "../lib/theme";
+import "../styles/tokens.css";
+import "../styles/globals.css";
+import "../styles/legacy-theme-compat.css";
 
 function ThemeController() {
-  const { themePreference } = useAuth();
+  const { themePreference, resolvedTheme } = useAuth();
 
   useEffect(() => {
-    const root = document.documentElement;
-    const appliedTheme = resolveThemePreference(themePreference, systemPrefersDarkTheme());
-    root.dataset.theme = appliedTheme;
-    root.style.colorScheme = appliedTheme;
+    applyThemePreference(themePreference, resolvedTheme);
     storeThemePreference(themePreference);
-  }, [themePreference]);
-
-  useEffect(() => {
-    if (themePreference !== "system" || typeof window === "undefined") {
-      return;
-    }
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const applySystemTheme = () => {
-      const appliedTheme = resolveThemePreference("system", mediaQuery.matches);
-      document.documentElement.dataset.theme = appliedTheme;
-      document.documentElement.style.colorScheme = appliedTheme;
-    };
-    applySystemTheme();
-    mediaQuery.addEventListener("change", applySystemTheme);
-    return () => {
-      mediaQuery.removeEventListener("change", applySystemTheme);
-    };
-  }, [themePreference]);
+  }, [resolvedTheme, themePreference]);
 
   return null;
 }
@@ -45,8 +28,9 @@ function AppChrome({ Component, pageProps }: Pick<AppProps, "Component" | "pageP
     <>
       <ThemeController />
       <AuthGate>
-        <ProductSessionBar />
-        <Component {...pageProps} />
+        <ApplicationShell>
+          <Component {...pageProps} />
+        </ApplicationShell>
       </AuthGate>
     </>
   );
@@ -62,7 +46,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <title>Adhyantra</title>
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1"
+          content="width=device-width, initial-scale=1"
         />
         {!publicMetadataRoute ? (
           <meta
@@ -70,13 +54,11 @@ export default function App({ Component, pageProps }: AppProps) {
             content={getInternalRobotsContent()}
           />
         ) : null}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var p=localStorage.getItem("adhyantra.themePreference")||"system";if(p!=="light"&&p!=="dark"&&p!=="system"){p="system";}var d=p==="dark"||(p==="system"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);var t=d?"dark":"light";document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t;}catch(e){}})();`,
-          }}
-        />
       </Head>
       <style jsx global>{`
+        /* Disabled Phase 0 stylesheet retained temporarily for diff clarity.
+           Active legacy compatibility lives in legacy-theme-compat.css. */
+        @media not all {
         :root {
           color-scheme: light;
           --app-bg:
@@ -265,6 +247,7 @@ export default function App({ Component, pageProps }: AppProps) {
         :root[data-theme="dark"] [style*="color: #475569"],
         :root[data-theme="dark"] [style*="color: rgb(71, 85, 105)"] {
           color: var(--muted-text) !important;
+        }
         }
       `}</style>
       <AuthProvider>

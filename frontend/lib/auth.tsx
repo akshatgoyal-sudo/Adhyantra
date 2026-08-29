@@ -10,7 +10,7 @@ import {
   type UpdateUserSettingsRequest,
   type UserSettingsResponse,
 } from "./api";
-import { getStoredThemePreference, normalizeThemePreference, storeThemePreference } from "./theme";
+import { getStoredThemePreference, normalizeThemePreference, storeThemePreference, useResolvedThemePreference, type ResolvedTheme } from "./theme";
 
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -28,6 +28,7 @@ type AuthContextValue = {
   completeOtpSignIn: (email: string, code: string) => Promise<AuthSessionResponse>;
   updateSettings: (payload: UpdateUserSettingsRequest) => Promise<UserSettingsResponse>;
   themePreference: ThemePreference;
+  resolvedTheme: ResolvedTheme;
   setThemePreference: (preference: ThemePreference) => void;
   logout: () => Promise<void>;
 };
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [session, setSession] = useState<AuthSessionResponse | null>(null);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => getStoredThemePreference());
+  const resolvedTheme = useResolvedThemePreference(themePreference);
 
   const setThemePreference = useCallback((preference: ThemePreference) => {
     const normalizedPreference = normalizeThemePreference(preference);
@@ -140,10 +142,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       completeOtpSignIn,
       updateSettings,
       themePreference,
+      resolvedTheme,
       setThemePreference,
       logout,
     }),
-    [completeOtpSignIn, logout, onboarding, refreshSession, session, setThemePreference, status, themePreference, updateSettings],
+    [completeOtpSignIn, logout, onboarding, refreshSession, resolvedTheme, session, setThemePreference, status, themePreference, updateSettings],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

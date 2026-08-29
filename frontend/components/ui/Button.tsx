@@ -1,0 +1,4 @@
+import { forwardRef, type ButtonHTMLAttributes } from "react"; import styles from "./ui.module.css";
+export type ButtonProps=ButtonHTMLAttributes<HTMLButtonElement>&{variant?:"primary"|"secondary"|"ghost"|"danger";loading?:boolean};
+export const Button=forwardRef<HTMLButtonElement,ButtonProps>(function Button({variant="primary",loading=false,disabled,children,...props},ref){return <button ref={ref} className={`${styles.button} ${styles[variant]}`} disabled={disabled||loading} aria-busy={loading||undefined} {...props}>{loading?"Please wait…":children}</button>});
+export const IconButton=forwardRef<HTMLButtonElement,ButtonHTMLAttributes<HTMLButtonElement>>(function IconButton({children,className="",...props},ref){return <button ref={ref} className={`${styles.iconButton} ${className}`} {...props}>{children}</button>});

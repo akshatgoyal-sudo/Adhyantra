@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 
 import ProductStatusCard from "../components/ProductStatusCard";
+import { LiveRegion, SelectField } from "../components/ui";
 import {
   createBillingCheckoutSession,
   createBillingPortalSession,
@@ -174,7 +175,7 @@ type SettingsFormState = {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { session, onboarding, refreshSession, updateSettings, setThemePreference } = useAuth();
+  const { session, onboarding, refreshSession, updateSettings, setThemePreference, resolvedTheme } = useAuth();
   const preferredExam = (session?.settings.current_exam || session?.settings.preferred_exam || DEFAULT_EXAM) as ExamCode;
 
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
@@ -945,24 +946,20 @@ export default function SettingsPage() {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
-                <label style={{ display: "grid", gap: "0.45rem" }}>
-                  <span style={{ fontWeight: 700, color: "var(--app-text)" }}>Theme</span>
-                  <select
+                <SelectField
+                    label="Theme"
+                    helpText={settingsForm.themePreference === "system" ? `Following your system (${resolvedTheme}).` : `Using ${resolvedTheme} mode.`}
                     value={settingsForm.themePreference}
                     onChange={(event) =>
                       void handleThemePreferenceChange(event.target.value as ThemePreference)
                     }
                     disabled={savingSettings || savingTheme}
-                    style={fieldStyle}
                   >
-                    <option value="system">System</option>
+                    <option value="system">System (currently {resolvedTheme})</option>
                     <option value="light">Light</option>
                     <option value="dark">Dark</option>
-                  </select>
-                  {savingTheme ? (
-                    <span style={{ color: "var(--muted-text)", fontSize: "0.84rem" }}>Saving theme...</span>
-                  ) : null}
-                </label>
+                  </SelectField>
+                <LiveRegion>{savingTheme ? "Saving theme preference." : settingsFeedback || settingsError || ""}</LiveRegion>
 
                 <label style={{ display: "grid", gap: "0.45rem" }}>
                   <span style={{ fontWeight: 700, color: "var(--app-text)" }}>Mentor mode</span>

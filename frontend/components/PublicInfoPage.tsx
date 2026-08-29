@@ -1,6 +1,7 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useMemo } from "react";
+import PublicShell from "./PublicShell";
 
 import {
   buildOrganizationStructuredData,
@@ -73,6 +74,7 @@ export default function PublicInfoPage({
         ))}
       </Head>
 
+      <PublicShell>
       <main className="public-info-page">
         <section className="public-info-hero">
           <div className="eyebrow">{eyebrow}</div>
@@ -97,6 +99,7 @@ export default function PublicInfoPage({
           ))}
         </section>
       </main>
+      </PublicShell>
 
       <style jsx>{`
         .public-info-page {
