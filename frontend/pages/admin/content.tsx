@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import {
@@ -9,6 +8,7 @@ import {
   syncAdminContentCorpus,
   transitionAdminContentItem,
   updateAdminContentItem,
+  ApiRequestError,
   type AdminContentImportResponse,
   type AdminContentInsightTopicItem,
   type AdminContentItemCreateRequest,
@@ -24,6 +24,7 @@ import {
   type ContentWorkflowAction,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { AccessDenied, AdminConfirmDialog, AdminShell } from "../../components/admin";
 
 const DEFAULT_LIMIT = 50;
 
@@ -273,7 +274,6 @@ function MetricSignalList({
 }
 
 export default function AdminContentPage() {
-  const router = useRouter();
   const { session } = useAuth();
   const loadRequestIdRef = useRef(0);
   const [overview, setOverview] = useState<AdminContentOverviewResponse | null>(null);
@@ -296,6 +296,8 @@ export default function AdminContentPage() {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<AdminContentImportResponse | null>(null);
+  const [accessRevoked, setAccessRevoked] = useState(false);
+  const [pendingWorkflowAction, setPendingWorkflowAction] = useState<ContentWorkflowAction | null>(null);
 
   const isAdminUser = Boolean(session?.user.admin_access.is_admin);
   const canReadContent = Boolean(session?.user.admin_access.privileges.includes("content_read"));
@@ -406,7 +408,8 @@ export default function AdminContentPage() {
       if (requestId !== loadRequestIdRef.current) {
         return;
       }
-      setError(loadError instanceof Error ? loadError.message : "Could not load the content inventory.");
+      if (loadError instanceof ApiRequestError && loadError.status === 403) setAccessRevoked(true);
+      else setError(loadError instanceof Error ? loadError.message : "Could not load the content inventory.");
       setOverview(null);
       setContentList(null);
     } finally {
@@ -421,13 +424,14 @@ export default function AdminContentPage() {
       return;
     }
     if (!hasAdminContentAccess) {
-      void router.replace("/");
+      loadRequestIdRef.current += 1;
+      setOverview(null); setContentList(null); setEditingItem(null);
       return;
     }
     void loadContent({ limit: DEFAULT_LIMIT, offset: 0 });
     // The initial load intentionally happens once after admin access is confirmed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAdminContentAccess, router, session]);
+  }, [hasAdminContentAccess, session]);
 
   function updateFilter(key: keyof AdminContentListFilters, value: string) {
     setFilters((current) => ({
@@ -607,28 +611,10 @@ export default function AdminContentPage() {
     void loadContent(nextFilters);
   }
 
-  if (session && !hasAdminContentAccess) {
-    return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "var(--app-bg)",
-          color: "var(--app-text)",
-          padding: "2rem 1rem 3rem",
-        }}
-      >
-        <section style={{ maxWidth: "920px", margin: "0 auto" }}>
-          <div style={noticeStyle}>
-            Internal content tools are only available to authorized Adhyantra admin accounts. Returning to the main
-            study workspace.
-          </div>
-        </section>
-      </main>
-    );
-  }
+  if (session && (!hasAdminContentAccess || accessRevoked)) return <AccessDenied area="content administration" />;
 
   return (
-    <main
+    <AdminShell access={session!.user.admin_access}><main
       style={{
         minHeight: "100vh",
         background: "var(--app-bg)",
@@ -684,7 +670,7 @@ export default function AdminContentPage() {
               Import controlled content items or sync existing corpus markdown into draft admin records for review.
             </p>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginTop: "1rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: "1rem", marginTop: "1rem" }}>
             <form onSubmit={handleImportContent} style={importCardStyle}>
               <div style={{ fontWeight: 900 }}>JSON import / update</div>
               <label style={labelStyle}>
@@ -929,7 +915,7 @@ export default function AdminContentPage() {
                 />
                 <MetricSignalList
                   title="Lesson and media mode usage"
-                  description="How lesson and video-oriented modes are being requested in real learner flows."
+                  description="How lesson, audio and scene-package modes are being requested in learner flows."
                   items={contentInsights.media_mode_usage}
                   emptyLabel="No lesson or media mode usage has been tracked for this scope yet."
                 />
@@ -1031,7 +1017,7 @@ export default function AdminContentPage() {
                   <button
                     type="button"
                     disabled={!canRunWorkflowAction("submit_for_review")}
-                    onClick={() => void handleWorkflowAction("submit_for_review")}
+                    onClick={() => setPendingWorkflowAction("submit_for_review")}
                     style={workflowButtonStyle}
                   >
                     {transitioningAction === "submit_for_review" ? "Submitting..." : "Submit for review"}
@@ -1039,7 +1025,7 @@ export default function AdminContentPage() {
                   <button
                     type="button"
                     disabled={!canRunWorkflowAction("publish")}
-                    onClick={() => void handleWorkflowAction("publish")}
+                    onClick={() => setPendingWorkflowAction("publish")}
                     style={workflowButtonStyle}
                   >
                     {transitioningAction === "publish" ? "Publishing..." : "Approve and publish"}
@@ -1047,7 +1033,7 @@ export default function AdminContentPage() {
                   <button
                     type="button"
                     disabled={!canRunWorkflowAction("return_to_draft")}
-                    onClick={() => void handleWorkflowAction("return_to_draft")}
+                    onClick={() => setPendingWorkflowAction("return_to_draft")}
                     style={secondaryButtonStyle}
                   >
                     {transitioningAction === "return_to_draft" ? "Returning..." : "Return to draft"}
@@ -1213,7 +1199,7 @@ export default function AdminContentPage() {
           )}
         </section>
       </section>
-    </main>
+    </main>{pendingWorkflowAction&&editingItem?<AdminConfirmDialog title={`${formatLabel(pendingWorkflowAction)} content`} description={`This will apply ${formatLabel(pendingWorkflowAction).toLowerCase()} to “${editingItem.title}”. The server remains authoritative for the resulting lifecycle state.`} confirmLabel={formatLabel(pendingWorkflowAction)} busy={Boolean(transitioningAction)} error={error} onCancel={()=>setPendingWorkflowAction(null)} onConfirm={()=>void handleWorkflowAction(pendingWorkflowAction).then(()=>setPendingWorkflowAction(null))}/>:null}</AdminShell>
   );
 }
 
@@ -1222,7 +1208,7 @@ const panelStyle = {
   background: "var(--panel-bg)",
   borderRadius: "28px",
   padding: "1.1rem",
-  boxShadow: "0 24px 70px rgba(15, 23, 42, 0.08)",
+  boxShadow: "var(--shadow-md)",
 };
 
 const filterGridStyle = {
@@ -1277,8 +1263,8 @@ const importCardStyle = {
 
 const importResultStyle = {
   marginTop: "1rem",
-  border: "1px solid rgba(5, 150, 105, 0.28)",
-  background: "rgba(5, 150, 105, 0.1)",
+  border: "1px solid var(--color-success)",
+  background: "var(--color-success-soft)",
   color: "var(--app-text)",
   borderRadius: "18px",
   padding: "0.85rem 1rem",
@@ -1373,8 +1359,8 @@ const mutedSmallStyle = {
 };
 
 const noticeStyle = {
-  border: "1px solid rgba(245, 158, 11, 0.3)",
-  background: "rgba(245, 158, 11, 0.12)",
+  border: "1px solid var(--color-warning)",
+  background: "var(--color-warning-soft)",
   color: "var(--app-text)",
   borderRadius: "20px",
   padding: "0.95rem 1rem",
@@ -1382,8 +1368,8 @@ const noticeStyle = {
 };
 
 const errorStyle = {
-  border: "1px solid rgba(220, 38, 38, 0.32)",
-  background: "rgba(220, 38, 38, 0.1)",
+  border: "1px solid var(--color-danger)",
+  background: "var(--color-danger-soft)",
   color: "var(--app-text)",
   borderRadius: "20px",
   padding: "0.95rem 1rem",
@@ -1391,7 +1377,7 @@ const errorStyle = {
 };
 
 const successTextStyle = {
-  color: "#047857",
+  color: "var(--color-success)",
   fontWeight: 900,
 };
 
@@ -1406,7 +1392,7 @@ const emptyStateStyle = {
 
 const insightGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   gap: "1rem",
 };
 
@@ -1426,10 +1412,10 @@ const insightSummaryCardStyle = {
 };
 
 const insightActionStyle = {
-  border: "1px solid rgba(59, 130, 246, 0.22)",
+  border: "1px solid var(--color-info)",
   borderRadius: "18px",
   padding: "0.95rem",
-  background: "rgba(59, 130, 246, 0.08)",
+  background: "var(--color-info-soft)",
   display: "grid",
   gap: "0.35rem",
 };

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import {
@@ -7,6 +6,7 @@ import {
   getAdminMediaRenderOps,
   getAdminOpsOverview,
   getAdminSupportOps,
+  ApiRequestError,
   type AdminMediaRenderOpsDeliveryEventSampleResponse,
   type AdminMediaRenderOpsJobSampleResponse,
   type AdminMediaRenderOpsResponse,
@@ -19,6 +19,7 @@ import {
   type AdminOpsSupportResponse,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { AccessDenied, AdminShell } from "../../components/admin";
 
 type SampleItem = {
   key: string;
@@ -111,7 +112,7 @@ function buildBillingEventSample(event: AdminOpsBillingEventSampleResponse): Sam
     .filter(Boolean)
     .join(" | ");
   return {
-    key: event.provider_event_id,
+    key: `${event.event_type}-${event.event_created_at || event.first_received_at || "event"}`,
     title: `${formatLabel(event.event_type)} | ${formatLabel(event.processing_state)}`,
     detail:
       resolution
@@ -121,8 +122,8 @@ function buildBillingEventSample(event: AdminOpsBillingEventSampleResponse): Sam
         : "Receipt captured for internal reconciliation."),
     meta: [
       event.provider_name ? formatLabel(event.provider_name) : null,
-      event.customer_ref ? `cust ${event.customer_ref}` : null,
-      event.subscription_ref ? `sub ${event.subscription_ref}` : null,
+      event.customer_ref ? "customer reference linked" : null,
+      event.subscription_ref ? "subscription reference linked" : null,
       `deliveries ${event.delivery_attempt_count}`,
       event.duplicate_delivery_count > 0 ? `duplicates ${event.duplicate_delivery_count}` : null,
       event.processing_error ? "has failure" : null,
@@ -198,7 +199,7 @@ function SummaryCard({
   tone?: "neutral" | "good" | "warn";
 }) {
   const accent =
-    tone === "good" ? "var(--success-strong)" : tone === "warn" ? "var(--warning-strong, #b45309)" : "var(--app-text)";
+    tone === "good" ? "var(--color-success)" : tone === "warn" ? "var(--color-warning)" : "var(--color-text)";
   return (
     <div style={summaryCardStyle}>
       <div style={eyebrowStyle}>{eyebrow}</div>
@@ -284,7 +285,6 @@ function SampleList({
 }
 
 export default function AdminOpsPage() {
-  const router = useRouter();
   const { session } = useAuth();
   const loadRequestIdRef = useRef(0);
   const [overview, setOverview] = useState<AdminOpsOverviewResponse | null>(null);
@@ -297,6 +297,7 @@ export default function AdminOpsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessRevoked, setAccessRevoked] = useState(false);
 
   const isAdminUser = Boolean(session?.user.admin_access.is_admin);
   const canReadContent = Boolean(session?.user.admin_access.privileges.includes("content_read"));
@@ -313,7 +314,7 @@ export default function AdminOpsPage() {
     }
     setError(null);
     try {
-      const [nextOverview, nextBilling, nextMedia] = await Promise.all([
+      const results = await Promise.allSettled([
         getAdminOpsOverview(),
         getAdminBillingOps(),
         getAdminMediaRenderOps(),
@@ -321,14 +322,23 @@ export default function AdminOpsPage() {
       if (requestId !== loadRequestIdRef.current) {
         return;
       }
-      setOverview(nextOverview);
-      setBilling(nextBilling);
-      setMedia(nextMedia);
+      const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      const forbidden = rejected.find((result) => result.reason instanceof ApiRequestError && result.reason.status === 403);
+      if (forbidden) {
+        setAccessRevoked(true); setOverview(null); setBilling(null); setMedia(null); setSupportSnapshot(null);
+        return;
+      }
+      if (results[0].status === "fulfilled") setOverview(results[0].value);
+      if (results[1].status === "fulfilled") setBilling(results[1].value);
+      if (results[2].status === "fulfilled") setMedia(results[2].value);
+      if (rejected.length) setError(`${rejected.length} operations panel${rejected.length === 1 ? "" : "s"} could not refresh. Available information remains visible.`);
     } catch (loadError) {
       if (requestId !== loadRequestIdRef.current) {
         return;
       }
-      setError(loadError instanceof Error ? loadError.message : "Could not load internal operations visibility.");
+      if (loadError instanceof ApiRequestError && loadError.status === 403) {
+        setAccessRevoked(true); setOverview(null); setBilling(null); setMedia(null); setSupportSnapshot(null);
+      } else setError(loadError instanceof Error ? loadError.message : "Could not load internal operations visibility.");
     } finally {
       if (requestId === loadRequestIdRef.current) {
         setLoading(false);
@@ -355,9 +365,9 @@ export default function AdminOpsPage() {
       setSupportSnapshot(nextSnapshot);
     } catch (lookupError) {
       setSupportSnapshot(null);
-      setSupportError(
-        lookupError instanceof Error ? lookupError.message : "Could not load the internal support snapshot.",
-      );
+      if (lookupError instanceof ApiRequestError && lookupError.status === 403) {
+        setAccessRevoked(true); setOverview(null); setBilling(null); setMedia(null);
+      } else setSupportError(lookupError instanceof Error ? lookupError.message : "Could not load the internal support snapshot.");
     } finally {
       setSupportLoading(false);
     }
@@ -368,13 +378,14 @@ export default function AdminOpsPage() {
       return;
     }
     if (!canAccessAdminOps) {
-      void router.replace("/");
+      loadRequestIdRef.current += 1;
+      setOverview(null); setBilling(null); setMedia(null); setSupportSnapshot(null);
       return;
     }
     void loadOps(true);
     // The initial load intentionally happens once after admin access is confirmed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canAccessAdminOps, router, session]);
+  }, [canAccessAdminOps, session]);
 
   const runtimeAttention = Boolean(overview && (!overview.runtime.ready || overview.runtime.failure_reasons.length > 0));
   const billingAttention = Boolean(
@@ -481,21 +492,10 @@ export default function AdminOpsPage() {
     );
   }
 
-  if (session && !canAccessAdminOps) {
-    return (
-      <main style={pageStyle}>
-        <section style={containerStyle}>
-          <div style={noticeStyle}>
-            Internal operations visibility is only available to authorized Adhyantra admin accounts. Returning to the
-            main study workspace.
-          </div>
-        </section>
-      </main>
-    );
-  }
+  if (session && (!canAccessAdminOps || accessRevoked)) return <AccessDenied area="runtime and operations administration" />;
 
   return (
-    <main style={pageStyle}>
+    <AdminShell access={session!.user.admin_access}><main style={pageStyle}>
       <section style={containerStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
           <div style={{ display: "grid", gap: "0.45rem" }}>
@@ -590,18 +590,10 @@ export default function AdminOpsPage() {
             <div style={panelMetaStyle}>Email or numeric user ID</div>
           </div>
           <div style={{ display: "flex", gap: "0.7rem", flexWrap: "wrap", alignItems: "center" }}>
-            <input
-              type="text"
-              value={supportLookup}
-              onChange={(event) => {
-                setSupportLookup(event.target.value);
-                if (supportError) {
-                  setSupportError(null);
-                }
-              }}
-              placeholder="learner@example.com or 123"
-              style={textInputStyle}
-            />
+            <label style={{ display: "grid", gap: "0.35rem", flex: "1 1 320px" }}>
+              <span style={{ fontWeight: 800 }}>Learner email or user ID</span>
+              <input type="text" value={supportLookup} onChange={(event) => { setSupportLookup(event.target.value); if (supportError) setSupportError(null); }} placeholder="Email address or numeric ID" style={textInputStyle} />
+            </label>
             <button type="button" onClick={() => void handleSupportLookup()} disabled={supportLoading} style={actionButtonStyle}>
               {supportLoading ? "Loading..." : "Inspect learner"}
             </button>
@@ -634,11 +626,9 @@ export default function AdminOpsPage() {
                     detail:
                       supportSnapshot.billing.suggested_next_step
                         ? supportSnapshot.billing.suggested_next_step
-                        : supportSnapshot.billing.subscription_ref
-                          ? `sub ${supportSnapshot.billing.subscription_ref}`
-                          : supportSnapshot.billing.customer_ref
-                            ? `cust ${supportSnapshot.billing.customer_ref}`
-                            : "No provider billing reference is linked yet.",
+                        : supportSnapshot.billing.subscription_ref || supportSnapshot.billing.customer_ref
+                          ? "Provider billing references are linked."
+                          : "No provider billing reference is linked yet.",
                   },
                   {
                     label: "Media",
@@ -680,22 +670,16 @@ export default function AdminOpsPage() {
                       {formatLabel(supportSnapshot.billing.provider_name)} billing references
                     </div>
                     <div style={mutedSmallStyle}>
-                      {supportSnapshot.user.billing_email ? `Billing email ${supportSnapshot.user.billing_email}` : "No billing email is linked yet."}
+                      {supportSnapshot.user.billing_email ? "Billing email linked" : "No billing email is linked yet."}
                     </div>
                     <div style={{ ...mutedSmallStyle, marginTop: "0.2rem" }}>
-                      {supportSnapshot.billing.customer_ref
-                        ? `Customer ref ${supportSnapshot.billing.customer_ref}`
-                        : "No customer ref linked yet."}
+                      {supportSnapshot.billing.customer_ref ? "Customer reference linked" : "No customer reference linked yet."}
                     </div>
                     <div style={mutedSmallStyle}>
-                      {supportSnapshot.billing.subscription_ref
-                        ? `Subscription ref ${supportSnapshot.billing.subscription_ref}`
-                        : "No subscription ref linked yet."}
+                      {supportSnapshot.billing.subscription_ref ? "Subscription reference linked" : "No subscription reference linked yet."}
                     </div>
                     <div style={mutedSmallStyle}>
-                      {supportSnapshot.billing.price_id
-                        ? `Plan ref ${supportSnapshot.billing.price_id}`
-                        : "No provider plan ref is linked yet."}
+                      {supportSnapshot.billing.price_id ? "Provider plan reference linked" : "No provider plan reference linked yet."}
                     </div>
                   </div>
                 </div>
@@ -1037,7 +1021,7 @@ export default function AdminOpsPage() {
 
         {loading && !overview && !billing && !media ? <div style={emptyStateStyle}>Loading internal operations visibility...</div> : null}
       </section>
-    </main>
+    </main></AdminShell>
   );
 }
 
@@ -1063,7 +1047,7 @@ const summaryGridStyle: CSSProperties = {
 
 const panelGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
   gap: "1rem",
 };
 
@@ -1072,9 +1056,9 @@ const supportPanelStyle: CSSProperties = {
   gap: "1rem",
   padding: "1.1rem",
   borderRadius: "26px",
-  background: "linear-gradient(180deg, rgba(15, 118, 110, 0.05), rgba(37, 99, 235, 0.04))",
+  background: "var(--color-surface)",
   border: "1px solid var(--panel-border)",
-  boxShadow: "0 24px 48px rgba(15, 23, 42, 0.08)",
+  boxShadow: "var(--shadow-md)",
 };
 
 const panelStyle: CSSProperties = {
@@ -1084,7 +1068,7 @@ const panelStyle: CSSProperties = {
   borderRadius: "26px",
   background: "var(--panel-bg)",
   border: "1px solid var(--panel-border)",
-  boxShadow: "0 24px 48px rgba(15, 23, 42, 0.08)",
+  boxShadow: "var(--shadow-md)",
 };
 
 const summaryCardStyle: CSSProperties = {
@@ -1192,8 +1176,8 @@ const sampleCardStyle: CSSProperties = {
 const noticeStyle: CSSProperties = {
   padding: "0.95rem 1rem",
   borderRadius: "18px",
-  border: "1px solid rgba(180, 83, 9, 0.18)",
-  background: "rgba(245, 158, 11, 0.1)",
+  border: "1px solid var(--color-warning)",
+  background: "var(--color-warning-soft)",
   color: "var(--app-text)",
   lineHeight: 1.6,
 };
