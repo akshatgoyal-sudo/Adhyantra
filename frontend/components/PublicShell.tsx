@@ -44,6 +44,9 @@ export default function PublicShell({ children }: { children: ReactNode }) {
             <p>Focused preparation for UPSC, SSC and Banking learners.</p>
           </div>
           <nav className={styles.footerLinks} aria-label="Public information">
+            <Link href="/exams/upsc">UPSC</Link>
+            <Link href="/exams/ssc">SSC</Link>
+            <Link href="/exams/banking">Banking</Link>
             <Link href="/about">About</Link>
             <Link href="/contact">Contact</Link>
             <Link href="/privacy">Privacy</Link>

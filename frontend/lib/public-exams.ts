@@ -1,153 +1,75 @@
-export const PUBLIC_EXAM_LANDING_SLUGS = ["upsc", "banking", "ssc"] as const;
-
+export const PUBLIC_EXAM_LANDING_SLUGS = ["upsc", "ssc", "banking"] as const;
 export type PublicExamLandingSlug = (typeof PUBLIC_EXAM_LANDING_SLUGS)[number];
-
-export type PublicExamFocusCard = {
-  title: string;
-  summary: string;
-};
+export type PublicExamCoverage = "strongest-native" | "limited-shared";
 
 export type PublicExamLanding = {
   slug: PublicExamLandingSlug;
   label: string;
+  shortLabel: string;
   title: string;
   description: string;
   heroSummary: string;
   audienceSummary: string;
-  focusCards: PublicExamFocusCard[];
-  subjectLabels: string[];
+  audiencePoints: string[];
+  nativeSubjectLabels: string[];
+  coverage: PublicExamCoverage;
+  coverageTitle: string;
+  coverageSummary: string;
+  sharedSupportSummary: string;
   defaultSubject: string;
   startSummary: string;
-  premiumFit: string;
+  focusCards: Array<{ title: string; summary: string }>;
 };
 
 export const PUBLIC_EXAM_LANDING_ROUTES = PUBLIC_EXAM_LANDING_SLUGS.map((slug) => `/exams/${slug}`);
 
 const PUBLIC_EXAM_LANDING_MAP: Record<PublicExamLandingSlug, PublicExamLanding> = {
   upsc: {
-    slug: "upsc",
-    label: "UPSC CSE",
-    title: "UPSC study workspace and premium lesson tools",
-    description:
-      "Explore how Adhyantra supports UPSC CSE preparation with subject-aware tutor sessions, mixed conceptual practice, and optional premium lesson media and downloads.",
-    heroSummary:
-      "Keep UPSC study sessions, revision loops, quizzes, and richer lesson outputs in one workspace instead of splitting them across separate tools.",
-    audienceSummary:
-      "This route is built for General Studies learners who want concept-first explanations, linked answer-building support, and a clean path from revision to practice.",
+    slug: "upsc", label: "UPSC Civil Services", shortLabel: "UPSC", title: "A structured UPSC study workspace", description: "Explore Adhyantra’s UPSC study workspace for subject-aware explanations, quiz practice, revision planning and progress tracking.",
+    heroSummary: "Connect General Studies explanations, practice, revision and progress in one exam-aware workspace.",
+    audienceSummary: "For UPSC learners who want concept-first study sessions and a clear return path from explanation to practice and revision.",
+    audiencePoints: ["Build connected General Studies understanding", "Move from explanation to quiz review", "Return to due revision with saved progress"],
+    nativeSubjectLabels: ["GS Polity", "GS Economy", "History", "Geography", "Environment"], coverage: "strongest-native",
+    coverageTitle: "Adhyantra’s strongest native exam corpus", coverageSummary: "UPSC currently has the broadest native subject coverage in Adhyantra, including core General Studies starting areas.", sharedSupportSummary: "Shared material may still support linked concepts, but it is not presented as native UPSC content when the source scope differs.",
+    defaultSubject: "polity", startSummary: "Concept-first General Studies tutoring, quizzes and revision in one workspace.",
     focusCards: [
-      {
-        title: "GS subject alignment",
-        summary: "Start with polity, economy, history, geography, and environment while keeping the exam context explicit.",
-      },
-      {
-        title: "Concept-first tutoring",
-        summary: "UPSC flows stay geared toward connected explanations, governance context, and revision-friendly structure.",
-      },
-      {
-        title: "Mixed practice loops",
-        summary: "Use the same exam-aware workspace for conceptual clarity, quiz practice, and repeated topic review.",
-      },
+      { title: "Understand", summary: "Use AI-guided explanations with explicit UPSC and subject context." },
+      { title: "Practise", summary: "Generate and review quizzes without losing the topic you were studying." },
+      { title: "Revisit", summary: "Use Today’s Plan, revision cues and progress history to decide what comes next." },
     ],
-    subjectLabels: ["GS Polity", "GS Economy", "History", "Geography", "Environment"],
-    defaultSubject: "polity",
-    startSummary: "Concept-first GS tutoring, quizzes, and revision in one workspace.",
-    premiumFit:
-      "Premium is most useful here when you want lesson audio, simple lesson-video outputs, or advanced exports for revision-heavy GS topics.",
-  },
-  banking: {
-    slug: "banking",
-    label: "Banking",
-    title: "Banking exam prep with subject-aware study and premium lesson outputs",
-    description:
-      "See how Adhyantra supports Banking exam preparation with financial-awareness tutoring, regulation basics, fast revision loops, and optional premium lesson media and exports.",
-    heroSummary:
-      "Keep practical concept anchors, regulation-linked explanations, speed-oriented practice, and richer lesson outputs inside the same Banking study workspace.",
-    audienceSummary:
-      "This route fits learners who need compact financial-awareness prep, regulatory basics, and fast revision without losing account continuity or progress history.",
-    focusCards: [
-      {
-        title: "Financial-awareness anchors",
-        summary: "Banking study flows stay practical around economy concepts, rates, institutions, and financial-system basics.",
-      },
-      {
-        title: "Regulation basics",
-        summary: "Use the same tutor loop for banking awareness, regulatory bodies, and governance-linked exam framing.",
-      },
-      {
-        title: "Speed-oriented practice",
-        summary: "Banking prep here favors compact explanations and fast revision loops that feel usable under time pressure.",
-      },
-    ],
-    subjectLabels: ["Financial Awareness", "Banking Awareness", "Regulatory Basics", "Sustainability Awareness"],
-    defaultSubject: "financial_awareness",
-    startSummary: "Practical financial-awareness prep with regulation basics and fast revision loops.",
-    premiumFit:
-      "Premium helps most when a banking topic needs reusable audio, simple lesson video, or richer exports for repeated revision.",
   },
   ssc: {
-    slug: "ssc",
-    label: "SSC",
-    title: "SSC general awareness study workspace and premium revision outputs",
-    description:
-      "Explore how Adhyantra supports SSC preparation with concise general-awareness tutoring, high-yield recall loops, and optional premium lesson media and downloads.",
-    heroSummary:
-      "Keep SSC general-awareness explanations, revision loops, quizzes, and optional richer lesson outputs in one compact study flow.",
-    audienceSummary:
-      "This route is built for learners who want short concept anchors, high-yield recall support, and fast quiz practice instead of long-form exam prep clutter.",
+    slug: "ssc", label: "Staff Selection Commission", shortLabel: "SSC", title: "A focused SSC study workspace", description: "Explore Adhyantra’s SSC preparation workspace for concise general-awareness explanations, quiz practice and revision support with honest content coverage.",
+    heroSummary: "Build compact general-awareness study loops with explanations, quizzes and revision support that retain your exam context.",
+    audienceSummary: "For SSC learners who want shorter concept anchors and repeat practice without treating shared material as a complete native SSC syllabus.",
+    audiencePoints: ["Review concise General Awareness concepts", "Practise recall through quiz and answer review", "Keep revision and progress in one account"],
+    nativeSubjectLabels: ["General Awareness: History", "General Awareness: Geography", "General Awareness: Polity", "General Awareness: Economy", "General Awareness: Environment"], coverage: "limited-shared",
+    coverageTitle: "Useful, but not comprehensive native coverage", coverageSummary: "SSC is selectable and functional, with a smaller native content set than UPSC.", sharedSupportSummary: "When native SSC material is limited, Adhyantra may use clearly scoped shared-corpus material. It is support content, not a claim of complete SSC syllabus coverage.",
+    defaultSubject: "general_awareness_history", startSummary: "Compact General Awareness study with recall-focused practice and revision.",
     focusCards: [
-      {
-        title: "High-yield GA coverage",
-        summary: "SSC pages stay centered on compact general-awareness preparation instead of essay-style long-form study.",
-      },
-      {
-        title: "Short concept anchors",
-        summary: "Topics stay framed for direct recall with one practical anchor, so revision remains quick and usable.",
-      },
-      {
-        title: "Fast quiz loops",
-        summary: "Use the same workspace for short revision cycles, elimination-friendly recall, and repeated practice.",
-      },
+      { title: "Anchor", summary: "Start with concise explanations for high-yield General Awareness areas." },
+      { title: "Recall", summary: "Use quiz practice and answer review to reinforce what you just studied." },
+      { title: "Repeat", summary: "Return to revision cues and saved progress instead of restarting each session." },
     ],
-    subjectLabels: [
-      "General Awareness: History",
-      "General Awareness: Geography",
-      "General Awareness: Polity",
-      "General Awareness: Economy",
-      "General Awareness: Environment",
+  },
+  banking: {
+    slug: "banking", label: "Banking examinations", shortLabel: "Banking", title: "A practical Banking study workspace", description: "Explore Adhyantra’s Banking exam workspace for financial-awareness explanations, regulation basics, quiz practice and revision with honest content coverage.",
+    heroSummary: "Keep financial-awareness concepts, regulation basics, practice and revision connected in one saved study context.",
+    audienceSummary: "For Banking learners who want practical concept anchors and repeat practice while understanding where native coverage remains limited.",
+    audiencePoints: ["Clarify financial-awareness foundations", "Practise regulation and institution concepts", "Track study and revision across sessions"],
+    nativeSubjectLabels: ["Financial Awareness", "Banking Awareness", "Regulatory Basics", "Sustainability Awareness"], coverage: "limited-shared",
+    coverageTitle: "Focused native topics with shared support", coverageSummary: "Banking is selectable and functional, but its native corpus is currently more limited than UPSC.", sharedSupportSummary: "Shared economy, governance or sustainability material may support a Banking topic when clearly scoped. It is not presented as complete native Banking coverage.",
+    defaultSubject: "financial_awareness", startSummary: "Practical financial-awareness study with regulation basics and repeat practice.",
+    focusCards: [
+      { title: "Clarify", summary: "Build practical understanding of financial systems, institutions and rates." },
+      { title: "Apply", summary: "Use quiz practice to check recall and identify weak concepts." },
+      { title: "Consolidate", summary: "Return to saved revision and progress signals across sessions." },
     ],
-    defaultSubject: "general_awareness_history",
-    startSummary: "Compact general-awareness study flow with fast recall and repeat practice.",
-    premiumFit:
-      "Premium helps when you want compact lesson audio, simple video, or exportable revision material for repeated general-awareness review.",
   },
 };
 
-export function isPublicExamLandingSlug(value: string): value is PublicExamLandingSlug {
-  return PUBLIC_EXAM_LANDING_SLUGS.includes(value as PublicExamLandingSlug);
-}
-
-export function getPublicExamLanding(slug: string) {
-  if (!isPublicExamLandingSlug(slug)) {
-    return null;
-  }
-  return PUBLIC_EXAM_LANDING_MAP[slug];
-}
-
-export function getPublicExamLandings() {
-  return PUBLIC_EXAM_LANDING_SLUGS.map((slug) => PUBLIC_EXAM_LANDING_MAP[slug]);
-}
-
-export function buildPublicExamWorkspaceHref(slug: PublicExamLandingSlug) {
-  const landing = PUBLIC_EXAM_LANDING_MAP[slug];
-  const params = new URLSearchParams({
-    exam: landing.slug,
-    subject: landing.defaultSubject,
-    mentor_mode: "normal",
-  });
-  return `/?${params.toString()}`;
-}
-
-export function buildPublicExamAuthHref(slug: PublicExamLandingSlug) {
-  const nextPath = buildPublicExamWorkspaceHref(slug);
-  return `/auth?next=${encodeURIComponent(nextPath)}`;
-}
+export function isPublicExamLandingSlug(value: string): value is PublicExamLandingSlug { return PUBLIC_EXAM_LANDING_SLUGS.includes(value as PublicExamLandingSlug); }
+export function getPublicExamLanding(slug: string) { return isPublicExamLandingSlug(slug) ? PUBLIC_EXAM_LANDING_MAP[slug] : null; }
+export function getPublicExamLandings() { return PUBLIC_EXAM_LANDING_SLUGS.map((slug) => PUBLIC_EXAM_LANDING_MAP[slug]); }
+export function buildPublicExamWorkspaceHref(slug: PublicExamLandingSlug) { const landing = PUBLIC_EXAM_LANDING_MAP[slug]; const params = new URLSearchParams({ exam: landing.slug, subject: landing.defaultSubject, mentor_mode: "normal" }); return `/?${params.toString()}`; }
+export function buildPublicExamAuthHref(slug: PublicExamLandingSlug) { return `/auth?next=${encodeURIComponent(buildPublicExamWorkspaceHref(slug))}`; }
