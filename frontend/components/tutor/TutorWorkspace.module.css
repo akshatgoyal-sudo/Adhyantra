@@ -4,3 +4,5 @@
 @media(max-width:359px){.page{padding-left:var(--space-2);padding-right:var(--space-2)}.context,.composer,.article,.tabs{border-radius:var(--radius-12)}.tablist{grid-template-columns:repeat(3,104px)}}
 @media(prefers-reduced-motion:no-preference){.question,.tab{transition:border-color var(--motion-fast),background-color var(--motion-fast),color var(--motion-fast)}}
 .page{--font-size-12:var(--text-xs);--font-size-14:var(--text-sm);--font-size-18:var(--text-lg);--font-size-20:var(--text-xl);--font-size-24:var(--text-2xl);--font-size-32:var(--text-3xl);--font-size-52:var(--text-5xl);--space-5:var(--space-6);--radius-8:var(--radius-sm);--radius-12:var(--radius-md);--radius-16:var(--radius-lg);--color-focus-ring:var(--color-focus)}
+
+.article{background:var(--color-editorial-surface);border-color:var(--color-editorial-rule);font-family:var(--font-editorial)}.article h2,.article h3,.article h4{font-family:var(--font-editorial)}.article:lang(hi),.article [lang="hi"]{font-family:var(--font-devanagari)}

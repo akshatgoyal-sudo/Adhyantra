@@ -7,6 +7,8 @@ export default function Document() {
     <Html lang="en" suppressHydrationWarning>
       <Head>
         <meta name="color-scheme" content="light dark" />
+        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+        <link rel="preload" href="/fonts/manrope-latin-variable.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
       </Head>
       <body>

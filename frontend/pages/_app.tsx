@@ -8,6 +8,7 @@ import ApplicationShell from "../components/ApplicationShell";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { getInternalRobotsContent, isPublicMetadataRoute } from "../lib/seo";
 import { applyThemePreference, storeThemePreference } from "../lib/theme";
+import "../styles/fonts.css";
 import "../styles/tokens.css";
 import "../styles/globals.css";
 

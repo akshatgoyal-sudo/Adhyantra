@@ -48,11 +48,11 @@ export function OtpSignInCard(props: Props) {
   const canVerify = Boolean(requestState) && otpCode.length === 6 && !challengeExpired && !submittingCode && !signInComplete;
 
   return (
-    <section id="sign-in" className={styles.signInCard} aria-labelledby="auth-form-title">
+    <section id="sign-in" className={`${styles.signInCard} ${requestState ? styles.signInVerify : styles.signInEmail}`} aria-labelledby="auth-form-title">
       <div className={styles.signInHeader}>
-        <div className={styles.eyebrow}>Secure entry</div>
+        <div className={styles.eyebrow}>Your study workspace</div>
         <h2 id="auth-form-title">Continue with email</h2>
-        <p>We will send a six-digit code to verify your account. No password is stored.</p>
+        <p>Use a six-digit email code to continue. No password to create or remember.</p>
       </div>
       <AuthStepIndicator steps={steps} />
       <form className={styles.form} onSubmit={(event) => { event.preventDefault(); requestState ? onVerify() : onRequest(); }} noValidate>

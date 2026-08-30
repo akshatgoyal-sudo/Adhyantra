@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import type { ReactNode } from "react";
 
+import { BrandLockup } from "./brand/BrandLockup";
 import styles from "./PublicShell.module.css";
 
 const PUBLIC_LINKS = [
@@ -10,7 +11,7 @@ const PUBLIC_LINKS = [
   { href: "/contact", label: "Contact" },
 ];
 
-export default function PublicShell({ children }: { children: ReactNode }) {
+export default function PublicShell({ children, compactFooter = false }: { children: ReactNode; compactFooter?: boolean }) {
   const router = useRouter();
 
   return (
@@ -18,8 +19,7 @@ export default function PublicShell({ children }: { children: ReactNode }) {
       <header className={styles.header}>
         <div className={styles.bar}>
           <Link className={styles.brand} href="/auth" aria-label="Adhyantra home">
-            <span className={styles.brandMark} aria-hidden="true">A</span>
-            <span>Adhyantra</span>
+            <BrandLockup />
           </Link>
           <nav className={styles.nav} aria-label="Public navigation">
             {PUBLIC_LINKS.map((item) => (
@@ -37,10 +37,10 @@ export default function PublicShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       {children}
-      <footer className={styles.footer}>
+      <footer className={`${styles.footer} ${compactFooter ? styles.footerCompact : ""}`}>
         <div className={styles.footerInner}>
           <div>
-            <Link className={styles.footerBrand} href="/auth">Adhyantra</Link>
+            <Link className={styles.footerBrand} href="/auth"><BrandLockup compact /></Link>
             <p>Focused preparation for UPSC, SSC and Banking learners.</p>
           </div>
           <nav className={styles.footerLinks} aria-label="Public information">
