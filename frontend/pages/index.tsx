@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Head from "next/head";
 import { useRouter } from "next/router";
 
 import DashboardOverview from "../components/dashboard/DashboardOverview";
@@ -29,5 +30,5 @@ export default function HomePage(){
  const handleSubject=(value:string)=>{setSubject(value);persistStudySettings(updateSettings,{current_exam:exam,current_subject:value},"home context");replaceContext(exam,value,mentorMode)};
  const handleMentor=(value:MentorMode)=>{setMentorMode(value);persistStudySettings(updateSettings,{mentor_mode:value,current_exam:exam,current_subject:subject},"home mentor");replaceContext(exam,subject,value)};
  const available=subjects.filter(item=>item.available);const options=available.length?available:subjects;const examLabel=exams.find(item=>item.code===exam)?.label||exam.toUpperCase();const subjectLabel=subjects.find(item=>item.code===subject)?.label||subject.replace(/_/g," ");const query=`exam=${encodeURIComponent(exam)}&subject=${encodeURIComponent(subject)}&mentor_mode=${encodeURIComponent(mentorMode)}`;
- return <DashboardOverview examLabel={examLabel} subjectLabel={subjectLabel} mentorMode={mentorMode} summary={summary} plan={plan} revision={revision} coach={coach} trends={trends} loading={loading} error={error} tutorHref={`/tutor?${query}`} testHref={`/test?${query}`} progressHref={`/progress?${query}`} settingsHref={`/settings?${query}`} onRetry={()=>void load(false)} contextControls={<StudyContextControls exam={exam} subject={subject} mentorMode={mentorMode} exams={exams} subjects={options} onExamChange={handleExam} onSubjectChange={handleSubject} onMentorModeChange={handleMentor}/>}/>
+ return <><Head><title>Study dashboard | Adhyantra</title></Head><DashboardOverview examLabel={examLabel} subjectLabel={subjectLabel} mentorMode={mentorMode} summary={summary} plan={plan} revision={revision} coach={coach} trends={trends} loading={loading} error={error} tutorHref={`/tutor?${query}`} testHref={`/test?${query}`} progressHref={`/progress?${query}`} settingsHref={`/settings?${query}`} onRetry={()=>void load(false)} contextControls={<StudyContextControls exam={exam} subject={subject} mentorMode={mentorMode} exams={exams} subjects={options} onExamChange={handleExam} onSubjectChange={handleSubject} onMentorModeChange={handleMentor}/>}/></>
 }

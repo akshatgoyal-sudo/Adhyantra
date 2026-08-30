@@ -39,7 +39,7 @@ export const PUBLIC_PREMIUM_HIGHLIGHTS: PublicPremiumHighlight[] = [
   },
   {
     title: "Richer lesson flows",
-    summary: "Eligible lesson modes can prepare narration, scene structure, and reusable study packages without claiming MP4 video output.",
+    summary: "Eligible lesson modes can prepare narration, scene structure, and reusable audio or scene/narration ZIP packages.",
   },
   {
     title: "Advanced downloads",

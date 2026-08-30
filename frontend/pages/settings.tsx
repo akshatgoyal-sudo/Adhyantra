@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Head from "next/head";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -127,6 +128,7 @@ export default function SettingsPage() {
   const initials = buildInitials(profileForm.displayName || account?.display_name || "Adhyantra learner", profile?.avatar_initials || null);
 
   return <main className={styles.page}>
+    <Head><title>Account settings | Adhyantra</title></Head>
     <header className={styles.intro}><span className={styles.eyebrow}>{onboardingRequested && !onboardingCompleted ? "Finish study setup" : "Account preferences"}</span><h1>Settings</h1><p>Keep your profile, study defaults, appearance and optional messages clear—without mixing account security with everyday preferences.</p>{!onboardingCompleted ? <StatusPanel tone="info" title="Complete your study setup" message={`${setupHint} You will continue to ${destinationLabel(nextPath)} afterward.`} actions={<div className={styles.setupActions}><Button onClick={() => void finishSetup()} loading={savingSetup} disabled={!setupReady}>Finish setup</Button><Link href="#profile">Review profile</Link></div>} /> : null}</header>
     <SettingsLayout>
       <ProfileSettings email={account?.email || ""} initials={initials} form={profileForm} loading={profileLoading} saving={savingProfile} dirty={profileDirty} error={profileError} feedback={profileFeedback} showReload={Boolean(profileError && !profile)} setupHint={setupHint} onChange={(patch) => setProfileForm((current) => ({ ...current, ...patch }))} onSave={() => void saveProfile()} onReload={() => setProfileLoadToken((value) => value + 1)} />

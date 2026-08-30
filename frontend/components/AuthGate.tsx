@@ -3,7 +3,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { useAuth } from "../lib/auth";
 import { PUBLIC_INFO_ROUTES } from "../lib/seo";
-import ProductStatusCard from "./ProductStatusCard";
+import { StatusPanel } from "./ui";
 
 const PUBLIC_ROUTES = new Set(["/auth", "/pricing", "/exams/[exam]", "/404", ...PUBLIC_INFO_ROUTES]);
 
@@ -18,7 +18,7 @@ function loadingScreen(title: string, message: string) {
       }}
     >
       <div style={{ width: "min(480px, 100%)" }}>
-        <ProductStatusCard tone="loading" eyebrow="Adhyantra" title={title} message={message} />
+        <StatusPanel tone="loading" eyebrow="Adhyantra" title={title} message={message} />
       </div>
     </div>
   );

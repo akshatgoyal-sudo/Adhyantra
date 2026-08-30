@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Head from "next/head";
 import { useRouter } from "next/router";
 
 import StudyContextControls from "../components/dashboard/StudyContextControls";
@@ -27,5 +28,5 @@ export default function ProgressPage(){
  const handleSubject=(value:string)=>{setSubject(value);persistStudySettings(updateSettings,{current_exam:exam,current_subject:value},"progress context");replaceContext(exam,value,mentorMode)};
  const handleMentor=(value:MentorMode)=>{setMentorMode(value);persistStudySettings(updateSettings,{mentor_mode:value,current_exam:exam,current_subject:subject},"progress mentor");replaceContext(exam,subject,value)};
  const available=subjects.filter(item=>item.available);const options=available.length?available:subjects;const examLabel=exams.find(item=>item.code===exam)?.label||exam.toUpperCase();const subjectLabel=subjects.find(item=>item.code===subject)?.label||subject.replace(/_/g," ");
- return <main className={styles.page}><PageHeader eyebrow={`${examLabel} · ${subjectLabel}`} title="Progress" description="Understand the next priority, then explore trends, revision, coaching evidence, and recent history." actions={<StudyContextControls exam={exam} subject={subject} mentorMode={mentorMode} exams={exams} subjects={options} onExamChange={handleExam} onSubjectChange={handleSubject} onMentorModeChange={handleMentor}/>}/><ProgressDashboard exam={exam} subject={subject} summary={summary} history={history} dailyPlan={plan} revisionDue={revision} coachSummary={coach} trends={trends} loading={loading} refreshing={refreshing} error={error} onRefresh={()=>void load(false)}/></main>
+ return <main className={styles.page}><Head><title>Progress and revision | Adhyantra</title></Head><PageHeader eyebrow={`${examLabel} · ${subjectLabel}`} title="Progress" description="Understand the next priority, then explore trends, revision, coaching evidence, and recent history." actions={<StudyContextControls exam={exam} subject={subject} mentorMode={mentorMode} exams={exams} subjects={options} onExamChange={handleExam} onSubjectChange={handleSubject} onMentorModeChange={handleMentor}/>}/><ProgressDashboard exam={exam} subject={subject} summary={summary} history={history} dailyPlan={plan} revisionDue={revision} coachSummary={coach} trends={trends} loading={loading} refreshing={refreshing} error={error} onRefresh={()=>void load(false)}/></main>
 }

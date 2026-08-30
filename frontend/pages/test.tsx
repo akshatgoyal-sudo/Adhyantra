@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Head from "next/head";
 import { useRouter } from "next/router";
 
 import QuizPanel from "../components/QuizPanel";
@@ -256,6 +257,7 @@ export default function TestPage() {
 
   return (
     <main id="main-content" className={styles.page}>
+      <Head><title>Quiz workspace | Adhyantra</title></Head>
       <div className={styles.intro}>
         <PageHeader
           eyebrow={`${examLabel} · ${subjectLabel}`}
