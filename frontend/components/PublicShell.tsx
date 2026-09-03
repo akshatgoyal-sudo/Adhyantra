@@ -11,8 +11,16 @@ const PUBLIC_LINKS = [
   { href: "/contact", label: "Contact" },
 ];
 
+const AUTH_LINKS = [
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+  { href: "/contact", label: "Contact" },
+];
+
 export default function PublicShell({ children, compactFooter = false }: { children: ReactNode; compactFooter?: boolean }) {
   const router = useRouter();
+  const isAuthEntry = router.pathname === "/auth";
+  const headerLinks = isAuthEntry ? AUTH_LINKS : PUBLIC_LINKS;
 
   return (
     <>
@@ -22,7 +30,7 @@ export default function PublicShell({ children, compactFooter = false }: { child
             <BrandLockup />
           </Link>
           <nav className={styles.nav} aria-label="Public navigation">
-            {PUBLIC_LINKS.map((item) => (
+            {headerLinks.map((item) => (
               <Link
                 key={item.href}
                 className={styles.link}
@@ -32,7 +40,7 @@ export default function PublicShell({ children, compactFooter = false }: { child
                 {item.label}
               </Link>
             ))}
-            <Link className={styles.signIn} href="/auth#sign-in">Sign in</Link>
+            {!isAuthEntry ? <Link className={styles.signIn} href="/auth#sign-in">Sign in</Link> : null}
           </nav>
         </div>
       </header>
@@ -44,10 +52,7 @@ export default function PublicShell({ children, compactFooter = false }: { child
             <p>Focused preparation for UPSC, SSC and Banking learners.</p>
           </div>
           <nav className={styles.footerLinks} aria-label="Public information">
-            <Link href="/exams/upsc">UPSC</Link>
-            <Link href="/exams/ssc">SSC</Link>
-            <Link href="/exams/banking">Banking</Link>
-            <Link href="/about">About</Link>
+            {!isAuthEntry ? <><Link href="/exams/upsc">UPSC</Link><Link href="/exams/ssc">SSC</Link><Link href="/exams/banking">Banking</Link><Link href="/about">About</Link></> : null}
             <Link href="/contact">Contact</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>

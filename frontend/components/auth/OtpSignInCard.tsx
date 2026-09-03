@@ -1,7 +1,6 @@
 import type { RefObject } from "react";
 
 import { Button, LiveRegion, StatusPanel, TextField } from "../ui";
-import { AuthStepIndicator, type AuthStepState } from "./AuthStepIndicator";
 import styles from "./AuthExperience.module.css";
 
 export type OtpViewState = {
@@ -27,7 +26,6 @@ type Props = {
   announcement: string;
   emailRef: RefObject<HTMLInputElement>;
   otpRef: RefObject<HTMLInputElement>;
-  steps: { step: string; label: string; state: AuthStepState }[];
   onEmailChange: (value: string) => void;
   onDisplayNameChange: (value: string) => void;
   onOtpChange: (value: string) => void;
@@ -41,7 +39,7 @@ export function OtpSignInCard(props: Props) {
   const {
     email, displayName, otpCode, requestState, submittingEmail, submittingCode,
     signInComplete, challengeExpired, challengeCountdown, resendCountdown, feedback,
-    error, errorTitle, announcement, emailRef, otpRef, steps, onEmailChange,
+    error, errorTitle, announcement, emailRef, otpRef, onEmailChange,
     onDisplayNameChange, onOtpChange, onRequest, onVerify, onResend, onChangeEmail,
   } = props;
   const canRequest = Boolean(email.trim()) && !submittingEmail && !submittingCode && !signInComplete;
@@ -50,17 +48,15 @@ export function OtpSignInCard(props: Props) {
   return (
     <section id="sign-in" className={`${styles.signInCard} ${requestState ? styles.signInVerify : styles.signInEmail}`} aria-labelledby="auth-form-title">
       <div className={styles.signInHeader}>
-        <div className={styles.eyebrow}>Your study workspace</div>
-        <h2 id="auth-form-title">Continue with email</h2>
-        <p>Use a six-digit email code to continue. No password to create or remember.</p>
+        <h2 id="auth-form-title">{requestState ? "Enter your sign-in code" : "Continue with email"}</h2>
+        <p>{requestState ? `Enter the six-digit code sent to ${requestState.maskedEmail}.` : "We will email you a six-digit sign-in code."}</p>
       </div>
-      <AuthStepIndicator steps={steps} />
       <form className={styles.form} onSubmit={(event) => { event.preventDefault(); requestState ? onVerify() : onRequest(); }} noValidate>
         <TextField
           ref={emailRef}
           id="auth-email"
           label="Email address"
-          helpText={requestState ? `Code requested for ${requestState.maskedEmail}.` : "Use the address where you want to receive your sign-in code."}
+          helpText={requestState ? `Code requested for ${requestState.maskedEmail}.` : "No password to create or remember."}
           type="email"
           value={email}
           onChange={(event) => onEmailChange(event.target.value)}
@@ -116,7 +112,7 @@ export function OtpSignInCard(props: Props) {
       </form>
       <div className={styles.security}>
         <span className={styles.securityMark} aria-hidden="true">✓</span>
-        <span>Your study progress is tied to your verified email. Adhyantra never displays your sign-in code after delivery.</span>
+        <span>Your verified email keeps your study progress available across sessions.</span>
       </div>
       <LiveRegion>{announcement}</LiveRegion>
     </section>

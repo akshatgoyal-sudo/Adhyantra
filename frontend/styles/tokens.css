@@ -7,11 +7,13 @@ color-scheme:light;--color-bg:#F7F5EF;--color-canvas:#F7F5EF;--color-surface:#FF
 [data-theme="dark"]{color-scheme:dark;--color-bg:#08141F;--color-canvas:#08141F;--color-surface:#0F2230;--color-surface-muted:#132A38;--color-surface-raised:#173241;--color-surface-overlay:#173241;--color-text:#ECF4F3;--color-text-muted:#A9BBC2;--color-border:#294756;--color-border-interactive:#466777;--color-primary:#39C6B2;--color-primary-hover:#67D8C6;--color-primary-soft:#153E3C;--color-primary-contrast:#A8F1E6;--color-on-primary:#06221F;--color-accent:#F2B84B;--color-accent-soft:#3A301D;--color-accent-contrast:#FFD985;--color-info:#60A5FA;--color-success:#4ADE80;--color-warning:#FBBF24;--color-danger:#FB7185;--color-info-soft:#142D4E;--color-success-soft:#153827;--color-warning-soft:#3A301D;--color-danger-soft:#421F2A;--color-focus:#67D8C6;--color-disabled-fg:#A9BBC2;--color-disabled-bg:#162B38;--color-nav-bg:rgba(15,34,48,.96);--color-scrim:rgba(0,0,0,.62);--color-selection:#19564F;--shadow-sm:0 1px 2px rgba(0,0,0,.25);--shadow-md:0 12px 30px rgba(0,0,0,.3);--shadow-overlay:0 24px 60px rgba(0,0,0,.42)}
 
 :root,[data-theme="light"]{
---font-ui:"Manrope","Noto Sans Devanagari","Segoe UI",system-ui,-apple-system,sans-serif;--font-editorial:"Source Serif 4",Georgia,"Times New Roman",serif;--font-devanagari:"Noto Sans Devanagari","Manrope","Nirmala UI",sans-serif;
---color-hero-canvas:#F1EFE6;--color-hero-glow:rgba(15,118,110,.13);--color-editorial-surface:#FFFEFA;--color-editorial-rule:#C6D7D1;--color-thread-start:#C98716;--color-thread-end:#0F766E;--color-brand-mark-bg:#0F766E;--color-brand-mark-fg:#FFFFFF;--color-action-surface:#0B5F59;--color-annotation:#FFF3D6;
---shadow-lift:0 18px 48px rgba(16,42,58,.13);--shadow-brand:0 7px 18px rgba(15,118,110,.22);--motion-reveal:220ms;--motion-thread:900ms;--ease-premium:cubic-bezier(.22,1,.36,1);
+--font-ui:"Instrument Sans","Noto Sans Devanagari","Segoe UI",system-ui,-apple-system,sans-serif;--font-editorial:"Source Serif 4",Georgia,"Times New Roman",serif;--font-devanagari:"Noto Sans Devanagari","Instrument Sans","Nirmala UI",sans-serif;
+--color-brand:#0F8F83;--color-hero-canvas:#F4F0E7;--color-hero-glow:rgba(15,143,131,.11);--color-editorial-surface:#FFFEFA;--color-editorial-rule:#C6D7D1;--color-action-surface:#0B675F;--color-annotation:#FFF3D6;--color-focus-visual:#D7ECE6;
+--color-auth-control-border:#718D83;
+--shadow-lift:0 18px 48px rgba(16,42,58,.12);--motion-reveal:220ms;--ease-premium:cubic-bezier(.22,1,.36,1);
 }
 [data-theme="dark"]{
---color-hero-canvas:#0B1B27;--color-hero-glow:rgba(57,198,178,.12);--color-editorial-surface:#122B39;--color-editorial-rule:#365968;--color-thread-start:#F2B84B;--color-thread-end:#67D8C6;--color-brand-mark-bg:#39C6B2;--color-brand-mark-fg:#06221F;--color-action-surface:#39C6B2;--color-annotation:#3A301D;
---shadow-lift:0 22px 54px rgba(0,0,0,.38);--shadow-brand:0 7px 20px rgba(57,198,178,.16);
+--color-brand:#39C6B2;--color-hero-canvas:#09151B;--color-hero-glow:rgba(57,198,178,.1);--color-editorial-surface:#162A31;--color-editorial-rule:#36545D;--color-action-surface:#39C6B2;--color-annotation:#3A301D;--color-focus-visual:#173238;
+--color-auth-control-border:#56798A;
+--shadow-lift:0 22px 54px rgba(0,0,0,.34);
 }

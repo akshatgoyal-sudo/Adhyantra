@@ -10,13 +10,14 @@
 .footerInner{width:min(calc(100% - 32px),var(--container-marketing));margin-inline:auto;padding-block:var(--space-8);display:flex;justify-content:space-between;gap:var(--space-8)}
 .footerInner p{max-width:360px;margin:var(--space-2) 0 0;font-size:var(--text-sm)}.footerLinks{display:flex;align-items:flex-start;gap:var(--space-3);flex-wrap:wrap}
 .footerLinks a{min-height:var(--target-min);display:inline-flex;align-items:center;color:var(--color-text-muted);font-size:var(--text-sm);text-underline-offset:4px}.footerLinks a:hover{color:var(--color-text)}
-@media(max-width:767px){.bar{min-height:64px}.link{display:none}.signIn{padding-inline:var(--space-4)}.footerInner{display:grid}}
+@media(max-width:767px){.bar{min-height:64px}.nav{gap:0}.link{padding-inline:var(--space-2);font-size:var(--text-xs)}.signIn{padding-inline:var(--space-4)}.footerInner{display:grid}}
 
 /* Phase 7A premium brand refinement. */
 .header{border-bottom-color:color-mix(in srgb,var(--color-border) 72%,transparent);backdrop-filter:blur(14px)}.bar{min-height:70px;gap:var(--space-5,20px)}
 .brand,.footerBrand{min-height:var(--target-min);color:var(--color-text);font-weight:inherit;letter-spacing:normal}.brandMark{display:none}
 .link,.signIn{position:relative;font-weight:700;transition:color 160ms var(--ease-premium),background 160ms var(--ease-premium),transform 140ms var(--ease-premium)}.link{border-radius:0}.link::after{content:"";position:absolute;left:var(--space-3);right:var(--space-3);bottom:4px;height:2px;border-radius:2px;background:var(--color-primary);transform:scaleX(0);transform-origin:center;transition:transform 180ms var(--ease-premium)}.link:hover,.link[aria-current="page"]{background:transparent;box-shadow:none}.link[aria-current="page"]::after{transform:scaleX(1)}
 .signIn{padding-inline:var(--space-4);border-radius:var(--radius-md);box-shadow:var(--shadow-sm)}.signIn:hover{transform:translateY(-1px)}.signIn:active{transform:translateY(1px)}
-.footerCompact{margin-top:var(--space-10,40px)}.footerCompact .footerInner{padding-block:var(--space-5,20px);align-items:center}.footerCompact .footerInner p{display:none}.footerCompact .footerLinks{justify-content:flex-end}.footerCompact .footerLinks a:nth-child(-n+3){display:none}
+.footerCompact{margin-top:var(--space-8)}.footerCompact .footerInner{padding-block:var(--space-4);align-items:center}.footerCompact .footerInner>div{display:none}.footerCompact .footerLinks{width:100%;justify-content:center;gap:var(--space-4)}
 @media(max-width:767px){.bar{min-height:62px}.footerCompact .footerLinks{justify-content:flex-start}.footerCompact .footerInner{padding-block:var(--space-4)}}
-@media(max-width:360px){.bar{width:min(calc(100% - 24px),var(--container-marketing))}.signIn{margin-left:auto;padding-inline:var(--space-3)}}
+@media(max-width:400px){.bar{width:min(calc(100% - 24px),var(--container-marketing));gap:var(--space-2)}.link{padding-inline:5px}.signIn{margin-left:auto;padding-inline:var(--space-3)}}
+@media(max-width:350px){.nav .link{display:none}}
