@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import type { ReactNode } from "react";
 
-import { BrandLockup } from "./brand/BrandLockup";
+import { BrandWordmark } from "./brand/BrandWordmark";
 import styles from "./PublicShell.module.css";
 
 const PUBLIC_LINKS = [
@@ -27,7 +27,7 @@ export default function PublicShell({ children, compactFooter = false }: { child
       <header className={styles.header}>
         <div className={styles.bar}>
           <Link className={styles.brand} href="/auth" aria-label="Adhyantra home">
-            <BrandLockup />
+            <BrandWordmark />
           </Link>
           <nav className={styles.nav} aria-label="Public navigation">
             {headerLinks.map((item) => (
@@ -48,7 +48,7 @@ export default function PublicShell({ children, compactFooter = false }: { child
       <footer className={`${styles.footer} ${compactFooter ? styles.footerCompact : ""}`}>
         <div className={styles.footerInner}>
           <div>
-            <Link className={styles.footerBrand} href="/auth"><BrandLockup compact /></Link>
+            <Link className={styles.footerBrand} href="/auth" aria-label="Adhyantra home"><BrandWordmark compact /></Link>
             <p>Focused preparation for UPSC, SSC and Banking learners.</p>
           </div>
           <nav className={styles.footerLinks} aria-label="Public information">

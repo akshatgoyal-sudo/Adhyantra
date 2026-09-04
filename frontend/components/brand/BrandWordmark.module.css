@@ -1,0 +1,20 @@
+.wordmark {
+  display: block;
+  width: 172px;
+  height: auto;
+  aspect-ratio: 26 / 5;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.inkStop { stop-color: #092553; }
+.tealStop { stop-color: #008D94; }
+
+:global([data-theme="dark"]) .inkStop { stop-color: #DAEAFE; }
+:global([data-theme="dark"]) .tealStop { stop-color: #54D7C9; }
+
+.compact { width: 160px; }
+
+@media (max-width: 767px) {
+  .wordmark, .compact { width: 146px; }
+}
