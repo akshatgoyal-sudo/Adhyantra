@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 import json
 import re
 from typing import Any
+import unicodedata
+from urllib.parse import quote
 
 from backend.schemas import (
     AudioScriptExportPayload,
@@ -17,6 +19,7 @@ from backend.schemas import (
     LessonExportMetadata,
     LessonExportTarget,
 )
+from backend.services.lesson_document_service import build_docx_lesson_notes, build_pdf_lesson_notes
 
 
 EXPORT_VERSION = "phase24_lesson_export_v1"
@@ -29,6 +32,8 @@ EXPORT_FORMAT_ALIASES: dict[str, LessonExportTarget] = {
     "json_export": "json_export",
     "markdown_export": "markdown_export",
     "text_export": "text_export",
+    "pdf_export": "pdf_export",
+    "docx_export": "docx_export",
     "slide_outline_export": "slide_outline_export",
     "audio_script_export": "audio_script_export",
     "json": "json_export",
@@ -42,6 +47,8 @@ EXPORT_CONTENT_TYPES = {
     "json_export": "application/json; charset=utf-8",
     "markdown_export": "text/markdown; charset=utf-8",
     "text_export": "text/plain; charset=utf-8",
+    "pdf_export": "application/pdf",
+    "docx_export": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "slide_outline_export": "text/markdown; charset=utf-8",
     "audio_script_export": "application/json; charset=utf-8",
 }
@@ -50,6 +57,8 @@ EXPORT_EXTENSIONS = {
     "json_export": "json",
     "markdown_export": "md",
     "text_export": "txt",
+    "pdf_export": "pdf",
+    "docx_export": "docx",
     "slide_outline_export": "slides.md",
     "audio_script_export": "audio-script.json",
 }
@@ -117,6 +126,14 @@ def _filename_base(metadata: dict[str, Any]) -> str:
 
 def _filename(metadata: dict[str, Any], export_target: LessonExportTarget) -> str:
     extension = EXPORT_EXTENSIONS.get(export_target, "txt")
+    if export_target in {"pdf_export", "docx_export"}:
+        topic = "".join(
+            character if character.isalnum() or character in {" ", "-", "_"} or unicodedata.category(character).startswith("M") else " "
+            for character in _text(metadata.get("topic"))
+        )
+        topic = re.sub(r"[\s_-]+", "-", topic).strip("-")[:96].strip("-")
+        base = f"{topic}-Adhyantra-Notes" if topic else "Adhyantra-Lesson-Notes"
+        return f"{base}.{extension}"
     return f"{metadata['filename_base']}.{extension}"
 
 
@@ -784,6 +801,10 @@ def build_lesson_export_asset(lesson: dict[str, Any], export_format: str | None)
         content = _slide_outline_export(lesson, metadata)
     elif export_target == "text_export":
         content = _plain_text_export(lesson, metadata)
+    elif export_target == "pdf_export":
+        content = build_pdf_lesson_notes(lesson, metadata_model.generated_at)
+    elif export_target == "docx_export":
+        content = build_docx_lesson_notes(lesson, metadata_model.generated_at)
     else:
         content = _markdown_export(lesson, metadata)
 
@@ -798,10 +819,19 @@ def build_lesson_export_asset(lesson: dict[str, Any], export_format: str | None)
 
 def build_lesson_export_download_headers(export_asset: LessonExportAsset) -> dict[str, str]:
     filename = export_asset.filename
+    if export_asset.export_target in {"pdf_export", "docx_export"}:
+        extension = EXPORT_EXTENSIONS[export_asset.export_target]
+        stem = filename[: -(len(extension) + 1)]
+        ascii_stem = re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-")
+        ascii_filename = f"{ascii_stem or 'Adhyantra-Lesson-Notes'}.{extension}"
+        content_disposition = f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}"
+    else:
+        ascii_filename = filename
+        content_disposition = f'attachment; filename="{filename}"'
     return {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": content_disposition,
         "X-Adhyantra-Export-Format": export_asset.export_target,
-        "X-Adhyantra-Export-Filename": filename,
+        "X-Adhyantra-Export-Filename": ascii_filename,
         "X-Adhyantra-Export-Version": export_asset.metadata.export_version,
         "X-Adhyantra-Export-Generated-At": export_asset.metadata.generated_at,
     }

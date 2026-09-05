@@ -19,12 +19,12 @@ export const TEACHING_MODE_OPTIONS: ReadonlyArray<{ value: TeachingModeRequest; 
   { value: "exam_focused", label: "Exam focused" },
 ];
 
-export const EXPORT_OPTIONS: ReadonlyArray<{ format: LessonExportFormat; label: string; description: string; contentType: string; premium: boolean }> = [
-  { format: "markdown_export", label: "Study notes", description: "Readable Markdown notes.", contentType: "text/markdown", premium: false },
-  { format: "text_export", label: "Plain text", description: "A portable text copy.", contentType: "text/plain", premium: false },
-  { format: "slide_outline_export", label: "Scene outline", description: "Scene titles, bullets, and visual cues.", contentType: "text/markdown", premium: true },
-  { format: "audio_script_export", label: "Narration script", description: "Structured narration source for audio production.", contentType: "application/json", premium: true },
-  { format: "json_export", label: "Structured data", description: "Machine-readable lesson data.", contentType: "application/json", premium: true },
+export const EXPORT_OPTIONS: ReadonlyArray<{ format: LessonExportFormat; label: string; description: string; contentType: string; action: string; premium: boolean }> = [
+  { format: "pdf_export", label: "PDF study notes", description: "A polished, print-ready copy of this lesson.", contentType: "application/pdf", action: "Download PDF", premium: false },
+  { format: "docx_export", label: "Editable Word notes", description: "An editable Microsoft Word copy of this lesson.", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", action: "Download DOCX", premium: false },
+  { format: "slide_outline_export", label: "Scene outline", description: "Scene titles, bullets, and visual cues.", contentType: "text/markdown", action: "Download outline", premium: true },
+  { format: "audio_script_export", label: "Narration script", description: "Structured narration source for audio production.", contentType: "application/json", action: "Download script", premium: true },
+  { format: "json_export", label: "Structured data", description: "Machine-readable lesson data.", contentType: "application/json", action: "Download data", premium: true },
 ];
 
 export function lessonModeLabel(value: string | null | undefined): string {

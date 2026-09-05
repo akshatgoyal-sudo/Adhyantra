@@ -13,6 +13,7 @@ from typing import Any
 import zipfile
 
 import pytest
+from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -38,6 +39,7 @@ from backend.services.demo_seed_service import (
     seed_demo_scenarios,
 )
 from backend.services.lesson_export_service import build_audio_script_export_payload
+from backend.services.lesson_document_service import LessonDocumentGenerationError
 from backend.services.mail_service import EmailDeliveryError, build_sign_in_otp_email
 from backend.services.media_render_service import (
     cancel_media_render_job,
@@ -17705,3 +17707,194 @@ def test_phase28_render_list_routes_require_auth(client: TestClient) -> None:
 
     assets_response = client.get("/api/tutor/render/assets")
     assert assets_response.status_code == 401
+
+
+def _phase7c2_document_payload(*, topic: str = "Fundamental Rights") -> dict[str, Any]:
+    return {
+        "topic": topic,
+        "subject": "polity",
+        "exam": "upsc",
+        "teaching_mode": "concept_overview",
+        "lesson_mode": "lecture_outline",
+        "simple_explanation": "Fundamental Rights protect liberty. मौलिक अधिकार स्वतंत्रता की रक्षा करते हैं।",
+        "detailed_explanation": "They are enforceable constitutional guarantees and remain central to exam analysis.",
+        "key_points": ["Equality before law", "Constitutional remedies"],
+        "examples": ["A citizen can seek judicial review."],
+        "exam_relevance": "Connect each right with its constitutional limitation.",
+        "common_traps": ["Treating every right as absolute"],
+        "sections": [
+            {
+                "title": "Revision reinforcement",
+                "summary": "Recall the right, limitation, and remedy together.",
+                "bullets": ["Articles 12 to 35"],
+                "examples": ["Article 32 provides a constitutional remedy."],
+                "remember_points": ["Rights and remedies belong in one answer structure."],
+                "revision_cues": ["Name the right before its limitation."],
+            }
+        ],
+        "practice_questions": ["Why is Article 32 itself a Fundamental Right?"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("export_format", "content_type", "extension"),
+    [
+        ("pdf_export", "application/pdf", ".pdf"),
+        (
+            "docx_export",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".docx",
+        ),
+    ],
+)
+def test_phase7c2_document_exports_use_displayed_lesson_without_ai_regeneration(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    export_format: str,
+    content_type: str,
+    extension: str,
+) -> None:
+    from backend.routes import tutor_routes
+
+    authenticate_test_user(client, email=f"phase7c2-{export_format}@example.com")
+
+    def fail_ai_regeneration(*args, **kwargs):
+        raise AssertionError("Document export must not regenerate the displayed lesson.")
+
+    monkeypatch.setattr(tutor_routes, "explain_topic", fail_ai_regeneration)
+    lesson = _phase7c2_document_payload()
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": lesson["topic"],
+            "subject": lesson["subject"],
+            "exam": lesson["exam"],
+            "teaching_mode": lesson["teaching_mode"],
+            "lesson_mode": lesson["lesson_mode"],
+            "export_format": export_format,
+            "lesson": lesson,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == content_type
+    assert response.headers["x-adhyantra-export-format"] == export_format
+    assert response.headers["x-adhyantra-export-filename"].endswith(extension)
+    assert f"filename*=UTF-8''Fundamental-Rights-Adhyantra-Notes{extension}" in response.headers["content-disposition"]
+    if export_format == "pdf_export":
+        assert response.content.startswith(b"%PDF-")
+        assert len(response.content) > 1_000
+    else:
+        assert response.content.startswith(b"PK\x03\x04")
+        with zipfile.ZipFile(BytesIO(response.content)) as package:
+            assert "[Content_Types].xml" in package.namelist()
+            assert "word/document.xml" in package.namelist()
+        document = Document(BytesIO(response.content))
+        document_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        assert "Fundamental Rights" in document_text
+        assert "मौलिक अधिकार" in document_text
+        assert "Why is Article 32" in document_text
+        assert "# " not in document_text
+
+
+@pytest.mark.parametrize("export_format", ["pdf_export", "docx_export"])
+def test_phase7c2_document_export_requires_validated_displayed_lesson(client: TestClient, export_format: str) -> None:
+    authenticate_test_user(client, email=f"phase7c2-validation-{export_format}@example.com")
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": "Fundamental Rights",
+            "subject": "polity",
+            "exam": "upsc",
+            "lesson_mode": "lecture_outline",
+            "export_format": export_format,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_phase7c2_document_export_rejects_mismatched_context(client: TestClient) -> None:
+    authenticate_test_user(client, email="phase7c2-context-mismatch@example.com")
+    lesson = _phase7c2_document_payload()
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": "Directive Principles",
+            "subject": "polity",
+            "exam": "upsc",
+            "lesson_mode": "lecture_outline",
+            "export_format": "pdf_export",
+            "lesson": lesson,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_phase7c2_document_export_sanitizes_non_latin_topic_filename(client: TestClient) -> None:
+    authenticate_test_user(client, email="phase7c2-safe-filename@example.com")
+    lesson = _phase7c2_document_payload(topic="../ मौलिक   अधिकार : परिचय ?")
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": lesson["topic"],
+            "subject": lesson["subject"],
+            "exam": lesson["exam"],
+            "teaching_mode": lesson["teaching_mode"],
+            "lesson_mode": lesson["lesson_mode"],
+            "export_format": "docx_export",
+            "lesson": lesson,
+        },
+    )
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert "../" not in disposition
+    assert "..\\" not in disposition
+    assert "filename*=UTF-8''%E0%A4%AE%E0%A5%8C%E0%A4%B2%E0%A4%BF%E0%A4%95-%E0%A4%85%E0%A4%A7%E0%A4%BF%E0%A4%95%E0%A4%BE%E0%A4%B0-%E0%A4%AA%E0%A4%B0%E0%A4%BF%E0%A4%9A%E0%A4%AF-Adhyantra-Notes.docx" in disposition
+    assert response.headers["x-adhyantra-export-filename"] == "Adhyantra-Notes.docx"
+
+
+def test_phase7c2_document_generation_failure_is_sanitized(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.routes import tutor_routes
+
+    authenticate_test_user(client, email="phase7c2-generation-failure@example.com")
+    lesson = _phase7c2_document_payload()
+
+    def fail_generation(*args, **kwargs):
+        raise LessonDocumentGenerationError("internal document detail must not escape")
+
+    monkeypatch.setattr(tutor_routes, "build_lesson_export_asset", fail_generation)
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": lesson["topic"],
+            "subject": lesson["subject"],
+            "exam": lesson["exam"],
+            "teaching_mode": lesson["teaching_mode"],
+            "lesson_mode": lesson["lesson_mode"],
+            "export_format": "pdf_export",
+            "lesson": lesson,
+        },
+    )
+    assert response.status_code == 500
+    assert response.json() == {"detail": "The PDF study notes could not be generated. Please try again."}
+    assert "internal document detail" not in response.text
+
+
+@pytest.mark.parametrize("export_format", ["markdown_export", "text_export"])
+def test_phase7c2_legacy_text_exports_remain_backend_compatible(client: TestClient, export_format: str) -> None:
+    authenticate_test_user(client, email=f"phase7c2-legacy-{export_format}@example.com")
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json={
+            "topic": "Preamble",
+            "subject": "polity",
+            "exam": "upsc",
+            "lesson_mode": "mini_lesson",
+            "export_format": export_format,
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["x-adhyantra-export-format"] == export_format

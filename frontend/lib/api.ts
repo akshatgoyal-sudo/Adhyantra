@@ -24,6 +24,8 @@ export type LessonExportFormat =
   | "json_export"
   | "markdown_export"
   | "text_export"
+  | "pdf_export"
+  | "docx_export"
   | "slide_outline_export"
   | "audio_script_export";
 export type LessonOutlineState = "foundational_recovery" | "steady_learning" | "revision_reinforcement" | "exam_consolidation";
@@ -52,6 +54,8 @@ const LESSON_EXPORT_FORMATS: LessonExportFormat[] = [
   "json_export",
   "markdown_export",
   "text_export",
+  "pdf_export",
+  "docx_export",
   "slide_outline_export",
   "audio_script_export",
 ];
@@ -60,6 +64,8 @@ const LESSON_EXPORT_EXTENSIONS: Record<LessonExportFormat, string> = {
   json_export: "json",
   markdown_export: "md",
   text_export: "txt",
+  pdf_export: "pdf",
+  docx_export: "docx",
   slide_outline_export: "slides.md",
   audio_script_export: "audio-script.json",
 };
@@ -3019,8 +3025,40 @@ function filenameFromContentDisposition(header: string | null): string | null {
   if (!header) {
     return null;
   }
+  const encodedMatch = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].trim());
+    } catch {
+      return null;
+    }
+  }
   const filenameMatch = header.match(/filename="?([^";]+)"?/i);
-  return filenameMatch?.[1] || null;
+  return filenameMatch?.[1]?.trim() || null;
+}
+
+function safeDownloadFilename(candidate: string, exportFormat: LessonExportFormat): string {
+  const expectedExtension = LESSON_EXPORT_EXTENSIONS[exportFormat];
+  const leaf = candidate.replace(/\\/g, "/").split("/").pop()?.replace(/[<>:"|?*\u0000-\u001f\u007f]/g, "").trim() || "";
+  if (!leaf.toLowerCase().endsWith(`.${expectedExtension.toLowerCase()}`)) {
+    return `Adhyantra-Lesson-Notes.${expectedExtension}`;
+  }
+  return leaf;
+}
+
+async function validateDocumentBlob(blob: Blob, contentType: string, exportFormat: LessonExportFormat): Promise<void> {
+  if (exportFormat !== "pdf_export" && exportFormat !== "docx_export") return;
+  const normalizedType = contentType.split(";", 1)[0].trim().toLowerCase();
+  const expectedType = exportFormat === "pdf_export"
+    ? "application/pdf"
+    : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const signature = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+  const validSignature = exportFormat === "pdf_export"
+    ? signature.length >= 5 && String.fromCharCode(...signature) === "%PDF-"
+    : signature.length >= 4 && signature[0] === 0x50 && signature[1] === 0x4b && signature[2] === 0x03 && signature[3] === 0x04;
+  if (normalizedType !== expectedType || !validSignature) {
+    throw new Error(`The backend returned an invalid ${exportFormat === "pdf_export" ? "PDF" : "Word document"}. Nothing was downloaded.`);
+  }
 }
 
 async function requestBlob(
@@ -3043,18 +3081,26 @@ async function requestBlob(
   }
 
   if (!response.ok) {
+    const formatLabel = fallbackExportFormat === "pdf_export" ? "PDF" : fallbackExportFormat === "docx_export" ? "Word document" : "export";
+    const fallbackMessage = response.status === 422
+      ? "The lesson export request was invalid. Refresh the lesson and try again."
+      : response.status === 401
+        ? "Your session has expired. Sign in again before downloading the lesson."
+        : response.status >= 500
+          ? `The ${formatLabel} could not be generated because the backend is unavailable. Please try again.`
+          : "This export could not be prepared. Please try again.";
     const rawBody = await response.text();
     if (rawBody) {
       try {
         const payload = JSON.parse(rawBody) as { detail?: unknown };
-        throw buildApiRequestError(response, payload, "This export could not be prepared. Please try again.");
+        throw buildApiRequestError(response, payload, fallbackMessage);
       } catch (error) {
         if (error instanceof Error && !(error instanceof SyntaxError)) {
           throw error;
         }
       }
     }
-    throw new Error("This export could not be prepared. Please try again.");
+    throw new Error(fallbackMessage);
   }
 
   const blob = await response.blob();
@@ -3066,11 +3112,13 @@ async function requestBlob(
   const exportVersion = response.headers.get("X-Adhyantra-Export-Version");
   const generatedAt = response.headers.get("X-Adhyantra-Export-Generated-At");
   const filename =
-    response.headers.get("X-Adhyantra-Export-Filename") ||
     filenameFromContentDisposition(response.headers.get("Content-Disposition")) ||
+    response.headers.get("X-Adhyantra-Export-Filename") ||
     `adhyantra-lesson-export.${LESSON_EXPORT_EXTENSIONS[exportFormat]}`;
 
-  return { blob, filename, contentType, exportFormat, exportVersion, generatedAt };
+  await validateDocumentBlob(blob, contentType, exportFormat);
+
+  return { blob, filename: safeDownloadFilename(filename, exportFormat), contentType, exportFormat, exportVersion, generatedAt };
 }
 
 async function requestMediaBlob(path: string): Promise<MediaRenderAssetDownload> {
@@ -5960,7 +6008,8 @@ export function exportLesson(
   teachingMode: TeachingModeRequest = "auto",
   lessonMode: LessonModeRequest = "auto",
   exam: ExamCode = DEFAULT_EXAM,
-  exportFormat: LessonExportFormat = "markdown_export",
+  exportFormat: LessonExportFormat = "pdf_export",
+  lesson?: ExplainResponse,
 ): Promise<LessonExportDownload> {
   const payload: Record<string, unknown> = { topic, subject, exam, export_format: exportFormat };
   if (teachingMode !== "auto") {
@@ -5968,6 +6017,26 @@ export function exportLesson(
   }
   if (lessonMode !== "auto") {
     payload.lesson_mode = lessonMode;
+  }
+  if (exportFormat === "pdf_export" || exportFormat === "docx_export") {
+    if (!lesson) {
+      return Promise.reject(new Error("Generate the lesson before downloading a document."));
+    }
+    payload.lesson = {
+      subject: lesson.subject,
+      exam: lesson.exam,
+      topic: lesson.topic,
+      teaching_mode: lesson.teaching_mode,
+      lesson_mode: lesson.lesson_mode,
+      simple_explanation: lesson.simple_explanation,
+      detailed_explanation: lesson.detailed_explanation,
+      key_points: lesson.key_points,
+      examples: lesson.examples,
+      exam_relevance: lesson.exam_relevance,
+      common_traps: lesson.common_traps,
+      sections: lesson.structured_teaching_content?.sections ?? [],
+      practice_questions: lesson.practice_questions,
+    };
   }
   return requestBlob("/api/tutor/export/lesson/download", {
     method: "POST",

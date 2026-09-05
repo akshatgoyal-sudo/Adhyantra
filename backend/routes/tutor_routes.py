@@ -24,6 +24,7 @@ from backend.services.lesson_export_service import (
     build_lesson_export_asset,
     build_lesson_export_download_headers,
 )
+from backend.services.lesson_document_service import DOCUMENT_EXPORT_FORMATS, LessonDocumentGenerationError
 from backend.services.media_render_dispatch_service import (
     build_audio_render_dispatch_payload,
     build_video_render_dispatch_payload,
@@ -398,22 +399,30 @@ def _lesson_export_download_response(payload: LessonExportRequest, request: Requ
         lesson_mode=payload.lesson_mode,
         export_format=payload.export_format,
     )
-    resolved_preferences = resolve_authenticated_study_preferences(
-        auth_context,
-        subject=payload.subject,
-        exam=payload.exam,
-    )
-    lesson = explain_topic(
-        db=db,
-        topic=payload.topic,
-        subject=resolved_preferences["subject"],
-        exam=resolved_preferences["exam"],
-        teaching_mode=payload.teaching_mode,
-        lesson_mode=payload.lesson_mode,
-        user_id=user_id,
-        record_study=False,
-    )
-    export_asset = build_lesson_export_asset(lesson, payload.export_format)
+    if payload.export_format in DOCUMENT_EXPORT_FORMATS:
+        lesson = payload.lesson.model_dump() if payload.lesson is not None else {}
+    else:
+        resolved_preferences = resolve_authenticated_study_preferences(
+            auth_context,
+            subject=payload.subject,
+            exam=payload.exam,
+        )
+        lesson = explain_topic(
+            db=db,
+            topic=payload.topic,
+            subject=resolved_preferences["subject"],
+            exam=resolved_preferences["exam"],
+            teaching_mode=payload.teaching_mode,
+            lesson_mode=payload.lesson_mode,
+            user_id=user_id,
+            record_study=False,
+        )
+    try:
+        export_asset = build_lesson_export_asset(lesson, payload.export_format)
+    except LessonDocumentGenerationError:
+        logger.exception("lesson document generation failed", extra={"export_format": payload.export_format})
+        document_label = "PDF study notes" if payload.export_format == "pdf_export" else "Word lesson notes"
+        raise HTTPException(status_code=500, detail=f"The {document_label} could not be generated. Please try again.")
     media_ready_content = lesson.get("media_ready_content") or {}
     if user is not None:
         record_tutor_action_usage(

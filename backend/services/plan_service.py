@@ -155,7 +155,7 @@ USAGE_LIMIT_DEFINITIONS: dict[str, UsageLimitDefinition] = {
     "standard_lesson_exports": UsageLimitDefinition(
         key="standard_lesson_exports",
         label="Standard lesson exports",
-        description="Monthly allowance for learner-facing markdown and text exports.",
+        description="Monthly allowance for learner-facing PDF and Word lesson exports.",
         category="export_quota",
         unit="export",
     ),

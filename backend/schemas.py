@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Any, Dict, List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 RecommendationSource = Literal["weak_area", "overdue_revision", "weak_topic", "continuation", "incomplete_topic", "sequence", "strong_topic_quiz", "fallback", "no_content"]
@@ -46,6 +47,8 @@ LessonExportTarget = Literal[
     "json_export",
     "markdown_export",
     "text_export",
+    "pdf_export",
+    "docx_export",
     "slide_outline_export",
     "audio_script_export",
 ]
@@ -1149,8 +1152,60 @@ class ExplainRequest(BaseModel):
     lesson_mode: LessonModeRequest | None = Field(default=None)
 
 
+class LessonDocumentSection(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    summary: str = Field(default="", max_length=12000)
+    bullets: List[str] = Field(default_factory=list, max_length=80)
+    examples: List[str] = Field(default_factory=list, max_length=80)
+    remember_points: List[str] = Field(default_factory=list, max_length=80)
+    revision_cues: List[str] = Field(default_factory=list, max_length=80)
+
+
+class LessonDocumentPayload(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=50)
+    exam: str = Field(..., min_length=1, max_length=50)
+    topic: str = Field(..., min_length=2, max_length=200)
+    teaching_mode: TeachingMode
+    lesson_mode: LessonMode
+    simple_explanation: str = Field(..., min_length=1, max_length=60000)
+    detailed_explanation: str = Field(default="", max_length=180000)
+    key_points: List[str] = Field(default_factory=list, max_length=100)
+    examples: List[str] = Field(default_factory=list, max_length=100)
+    exam_relevance: str = Field(default="", max_length=30000)
+    common_traps: List[str] = Field(default_factory=list, max_length=100)
+    sections: List[LessonDocumentSection] = Field(default_factory=list, max_length=40)
+    practice_questions: List[str] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_serialized_size(self) -> "LessonDocumentPayload":
+        if len(json.dumps(self.model_dump(), ensure_ascii=False).encode("utf-8")) > 1_000_000:
+            raise ValueError("Lesson content is too large to export.")
+        return self
+
+
 class LessonExportRequest(ExplainRequest):
     export_format: LessonExportFormat = "markdown_export"
+    lesson: LessonDocumentPayload | None = None
+
+    @model_validator(mode="after")
+    def validate_document_context(self) -> "LessonExportRequest":
+        if self.export_format not in {"pdf_export", "docx_export"}:
+            return self
+        if self.lesson is None:
+            raise ValueError("The generated lesson is required for PDF and Word exports.")
+        comparisons = (
+            (self.topic, self.lesson.topic, "topic"),
+            (self.subject, self.lesson.subject, "subject"),
+            (self.exam, self.lesson.exam, "exam"),
+        )
+        for request_value, lesson_value, field_name in comparisons:
+            if request_value is not None and request_value.strip().casefold() != lesson_value.strip().casefold():
+                raise ValueError(f"Export {field_name} does not match the generated lesson.")
+        if self.teaching_mode is not None and self.teaching_mode != self.lesson.teaching_mode:
+            raise ValueError("Export teaching mode does not match the generated lesson.")
+        if self.lesson_mode is not None and self.lesson_mode != self.lesson.lesson_mode:
+            raise ValueError("Export lesson mode does not match the generated lesson.")
+        return self
 
 
 class AudioRenderRequest(ExplainRequest):
@@ -1518,7 +1573,7 @@ class JsonLessonExportPayload(BaseModel):
 
 class LessonExportAsset(BaseModel):
     metadata: LessonExportMetadata
-    content: str
+    content: str | bytes
     content_type: str
     filename: str
     export_target: LessonExportTarget
