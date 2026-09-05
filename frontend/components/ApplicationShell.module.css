@@ -20,3 +20,4 @@
 @media(max-width:1024px){.bar{gap:12px}.navLink{padding-inline:9px}.accountButton{max-width:142px}}
 @media(max-width:900px){.header{display:none}.mobileTop{position:sticky;top:0;z-index:40;height:58px;padding:0 var(--space-4);display:flex;align-items:center;background:var(--color-surface);box-shadow:var(--shadow-sm)}.mobileNav{display:grid}.panel{right:12px;bottom:calc(78px + env(safe-area-inset-bottom));top:auto;max-height:calc(100dvh - 154px - env(safe-area-inset-bottom));transform-origin:bottom right}.main{padding-bottom:calc(84px + env(safe-area-inset-bottom))}}
 @media(prefers-reduced-motion:reduce){.panel{animation:none}.navLink,.navLink::after,.accountButton,.mobileItem{transition:none;transform:none}}
+@media print{.header,.mobileTop,.mobileNav,.panel{display:none!important}.main{padding:0!important}}
