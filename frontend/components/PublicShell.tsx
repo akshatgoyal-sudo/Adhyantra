@@ -42,6 +42,13 @@ export default function PublicShell({ children, compactFooter = false }: { child
             ))}
             {!isAuthEntry ? <Link className={styles.signIn} href="/auth#sign-in">Sign in</Link> : null}
           </nav>
+          {!isAuthEntry ? <details className={styles.mobileMenu}>
+            <summary>Menu</summary>
+            <nav aria-label="Mobile public navigation">
+              {PUBLIC_LINKS.map((item) => <Link key={item.href} href={item.href} aria-current={router.pathname === item.href ? "page" : undefined}>{item.label}</Link>)}
+              <Link className={styles.mobileSignIn} href="/auth#sign-in">Sign in</Link>
+            </nav>
+          </details> : null}
         </div>
       </header>
       {children}

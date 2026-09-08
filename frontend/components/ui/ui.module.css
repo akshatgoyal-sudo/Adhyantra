@@ -15,3 +15,6 @@
 .skeleton{display:block;border-radius:var(--radius-sm);background:linear-gradient(90deg,var(--color-surface-muted),var(--color-surface-raised),var(--color-surface-muted));background-size:200% 100%;animation:skeleton 1.4s ease-in-out infinite}
 .state{text-align:center;padding:var(--space-6)}.state h2{font-size:var(--text-xl)}.state p{color:var(--color-text-muted);max-width:520px;margin:var(--space-2) auto var(--space-4)}
 @keyframes skeleton{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.skeleton{animation:none}}@media(max-width:767px){.pageHeader{display:grid}.statusActions{grid-column:1/-1}}
+
+/* Phase 7D: semantic state emphasis without another boxed card. */
+.status{border:0;border-left:3px solid var(--color-border-interactive);border-radius:0 var(--radius-lg) var(--radius-lg) 0}.statusInfo{border-left-color:var(--color-info)}.statusSuccess{border-left-color:var(--color-success)}.statusWarning{border-left-color:var(--color-warning)}.statusError{border-left-color:var(--color-danger)}

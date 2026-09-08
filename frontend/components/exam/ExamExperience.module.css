@@ -12,3 +12,7 @@
 @media(max-width:900px){.hero,.twoColumn{grid-template-columns:1fr}.mark{min-height:190px}.workflow,.capabilities{grid-template-columns:1fr}.cta{align-items:flex-start;flex-direction:column}}
 @media(max-width:640px){.page{width:min(calc(100% - 24px),var(--container-marketing));padding-top:var(--space-6);gap:var(--space-8)}.hero{padding:var(--space-6) var(--space-4)}.mark{min-height:150px}.examNav{display:grid;grid-template-columns:repeat(3,1fr)}.examNav a{padding-inline:var(--space-2);justify-content:center}.audience,.coverage,.cta{padding:var(--space-5)}.actions{align-items:stretch;flex-direction:column}.primary,.secondary{width:100%}}
 @media(max-width:340px){.page{width:min(calc(100% - 16px),var(--container-marketing))}.examNav{grid-template-columns:1fr}.hero h1{font-size:var(--text-3xl)}}
+
+/* Phase 7D: a quieter editorial discovery hierarchy. */
+.hero{grid-template-columns:minmax(0,1.35fr) minmax(240px,.65fr);border:0;background:var(--color-surface-raised)}.mark{min-height:230px;border:0}.audience{border:0;background:var(--color-surface-raised);box-shadow:var(--shadow-sm)}.workflow,.capabilities{gap:var(--space-6)}.card,.capability{padding:var(--space-5) 0;border:0;border-top:2px solid var(--exam-accent);border-radius:0;background:transparent}.coverage{border:0;border-left:4px solid var(--exam-accent);border-radius:0 var(--radius-xl) var(--radius-xl) 0}.cta{border:0}
+@media(max-width:640px){.mark{min-height:136px}.mark svg{width:min(170px,70%)}}

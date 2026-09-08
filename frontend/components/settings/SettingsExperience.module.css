@@ -19,3 +19,8 @@
 @media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{position:static}.nav{display:none}.mobileNav{display:block}.section{scroll-margin-top:76px}}
 @media(max-width:640px){.page{width:min(calc(100% - 24px),var(--container-app));padding-top:var(--space-6)}.section{padding:var(--space-4)}.formGrid,.choiceGrid,.planGrid{grid-template-columns:1fr}.spanTwo{grid-column:auto}.profileSummary{grid-template-columns:52px minmax(0,1fr)}.avatar{width:52px;height:52px}.dangerZone{align-items:flex-start;flex-direction:column}.preview{grid-template-columns:1fr}.previewSwatches{justify-content:flex-start}}
 @media(max-width:340px){.page{width:min(calc(100% - 16px),var(--container-app))}.section{padding:var(--space-3)}.actions,.setupActions{align-items:stretch;flex-direction:column}.actions button,.setupActions button,.setupActions a{width:100%}}
+
+/* Phase 7D: distinguish navigation, editable groups and supporting facts. */
+.layout{grid-template-columns:200px minmax(0,1fr);gap:clamp(var(--space-6),5vw,var(--space-12))}.nav{padding:0 0 0 var(--space-2);border:0;border-left:1px solid var(--color-border);border-radius:0;background:transparent}.section{padding:var(--space-8);border:0;background:var(--color-surface-raised)}.checkRow{padding:var(--space-3) 0;border:0;border-top:1px solid var(--color-border);border-radius:0;background:transparent}.checkRow:first-child{border-top:0}.fact{padding:var(--space-4) 0;border:0;border-top:2px solid var(--color-primary);border-radius:0;background:transparent}.planCard{border:0;border-left:3px solid var(--color-accent);border-radius:0 var(--radius-lg) var(--radius-lg) 0}
+@media(max-width:640px){.section{padding:var(--space-5)}}
+@media(max-width:900px){.layout{grid-template-columns:1fr;gap:var(--space-5)}}

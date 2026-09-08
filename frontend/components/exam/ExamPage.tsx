@@ -16,7 +16,7 @@ const PRODUCT_CAPABILITIES = [
 ] as const;
 
 function ExamMark({ label }: { label: string }) {
-  return <div className={styles.mark} aria-label={`${label} structured study illustration`} role="img"><div><svg viewBox="0 0 240 170" fill="none" aria-hidden="true"><path d="M32 140h176M48 120V58l72-34 72 34v62M72 120V72h96v48M96 120V88h48v32" stroke="currentColor" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round"/><path d="M58 142h124" stroke="currentColor" strokeWidth="14" strokeLinecap="round"/></svg><div className={styles.markLabel}>{label} study path</div></div></div>;
+  return <div className={styles.mark} aria-label={`${label} focused study illustration`} role="img"><div><svg viewBox="0 0 240 170" fill="none" aria-hidden="true"><path d="M42 48h96M42 82h126M42 116h80" stroke="currentColor" strokeWidth="7" strokeLinecap="round"/><path d="M166 38h30v30M196 102v30h-30" stroke="currentColor" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round"/><path d="M154 85h42" stroke="currentColor" strokeWidth="13" strokeLinecap="round"/></svg><div className={styles.markLabel}>{label} study path</div></div></div>;
 }
 
 export function ExamPage({ landing }: { landing: PublicExamLanding }) {
