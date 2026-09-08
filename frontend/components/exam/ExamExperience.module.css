@@ -15,4 +15,5 @@
 
 /* Phase 7D: a quieter editorial discovery hierarchy. */
 .hero{grid-template-columns:minmax(0,1.35fr) minmax(240px,.65fr);border:0;background:var(--color-surface-raised)}.mark{min-height:230px;border:0}.audience{border:0;background:var(--color-surface-raised);box-shadow:var(--shadow-sm)}.workflow,.capabilities{gap:var(--space-6)}.card,.capability{padding:var(--space-5) 0;border:0;border-top:2px solid var(--exam-accent);border-radius:0;background:transparent}.coverage{border:0;border-left:4px solid var(--exam-accent);border-radius:0 var(--radius-xl) var(--radius-xl) 0}.cta{border:0}
+@media(max-width:900px){.hero{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:640px){.mark{min-height:136px}.mark svg{width:min(170px,70%)}}
