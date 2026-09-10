@@ -11,7 +11,7 @@ from backend.config import get_settings
 from backend.db import get_db
 from backend.schemas import AudioRenderRequest, DoubtRequest, DoubtResponse, ExplainRequest, ExplainResponse, LessonExportRequest, MediaRenderJobResponse, MediaRenderType, VideoRenderRequest
 from backend.services.analytics_service import record_analytics_event_safe
-from backend.services.auth_service import get_current_auth_context, resolve_authenticated_study_preferences
+from backend.services.auth_service import get_current_auth_context, require_current_auth_context, resolve_authenticated_study_preferences
 from backend.services.durable_media_storage_service import (
     MediaStorageObjectMissingError,
     MediaStorageProviderError,
@@ -389,9 +389,9 @@ def explain_topic_route(payload: ExplainRequest, request: Request, db: Session =
 
 
 def _lesson_export_download_response(payload: LessonExportRequest, request: Request, db: Session) -> Response:
-    auth_context = get_current_auth_context(db, request)
-    user = auth_context["user"] if auth_context else None
-    user_id = user.id if user else None
+    auth_context = require_current_auth_context(db, request)
+    user = auth_context["user"]
+    user_id = user.id
     quota_snapshots = enforce_tutor_action_access_and_quota(
         db,
         user=user,

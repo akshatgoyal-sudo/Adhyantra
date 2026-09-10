@@ -1008,7 +1008,6 @@ def get_current_auth_context(db: Session, request: Request) -> dict[str, Any] | 
             **request_log_context(request),
             **_session_cookie_log_fields(raw_token),
             reason="unknown_session_token",
-            token_fingerprint=stable_hash(raw_token, length=10),
         )
         _record_auth_request_state(request, failure_reason="unknown_session_token")
         return None

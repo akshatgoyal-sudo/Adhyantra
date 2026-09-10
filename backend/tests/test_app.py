@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import json
 import logging
@@ -14769,7 +14770,12 @@ def test_premium_tutor_access_is_rejected_before_generation_export_or_job_creati
         assert detail["upgrade_required"] is (account_kind == "free")
     else:
         assert account_kind == "anonymous"
-        assert detail == "Sign in is required for rendered media."
+        expected_message = (
+            "You need to sign in first."
+            if endpoint.startswith("/api/tutor/export/lesson")
+            else "Sign in is required for rendered media."
+        )
+        assert detail == expected_message
 
     session_factory = client.app.state.testing_session_factory
     db = session_factory()
@@ -17736,6 +17742,167 @@ def _phase7c2_document_payload(*, topic: str = "Fundamental Rights") -> dict[str
     }
 
 
+def _lesson_export_request_payload(export_format: str) -> dict[str, Any]:
+    lesson = _phase7c2_document_payload()
+    payload: dict[str, Any] = {
+        "topic": lesson["topic"],
+        "subject": lesson["subject"],
+        "exam": lesson["exam"],
+        "teaching_mode": lesson["teaching_mode"],
+        "lesson_mode": lesson["lesson_mode"],
+        "export_format": export_format,
+    }
+    if export_format in {"pdf_export", "docx_export"}:
+        payload["lesson"] = lesson
+    return payload
+
+
+def _assert_no_lesson_export_side_effects(client: TestClient) -> None:
+    session_factory = client.app.state.testing_session_factory
+    db = session_factory()
+    try:
+        assert db.query(AnalyticsEvent).filter(AnalyticsEvent.event_name == "lesson.exported").count() == 0
+        assert db.query(UsageConsumptionRecord).count() == 0
+        assert db.query(TopicStudy).count() == 0
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("endpoint", ["/api/tutor/export/lesson", "/api/tutor/export/lesson/download"])
+@pytest.mark.parametrize("export_format", ["pdf_export", "docx_export", "markdown_export", "text_export"])
+def test_lesson_exports_require_authentication_before_service_or_analytics(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: str,
+    export_format: str,
+) -> None:
+    from backend.routes import tutor_routes
+
+    calls = {"lesson": 0, "asset": 0, "analytics": 0}
+
+    def reject_unexpected_lesson_call(*args, **kwargs):
+        calls["lesson"] += 1
+        raise AssertionError("Unauthenticated export reached lesson generation.")
+
+    def reject_unexpected_asset_call(*args, **kwargs):
+        calls["asset"] += 1
+        raise AssertionError("Unauthenticated export reached document serialization.")
+
+    def reject_unexpected_analytics_call(*args, **kwargs):
+        calls["analytics"] += 1
+        raise AssertionError("Unauthenticated export reached analytics recording.")
+
+    monkeypatch.setattr(tutor_routes, "explain_topic", reject_unexpected_lesson_call)
+    monkeypatch.setattr(tutor_routes, "build_lesson_export_asset", reject_unexpected_asset_call)
+    monkeypatch.setattr(tutor_routes, "record_analytics_event_safe", reject_unexpected_analytics_call)
+
+    response = client.post(endpoint, json=_lesson_export_request_payload(export_format))
+
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("application/json")
+    assert "x-adhyantra-export-format" not in response.headers
+    assert response.json() == {"detail": "You need to sign in first."}
+    assert calls == {"lesson": 0, "asset": 0, "analytics": 0}
+    _assert_no_lesson_export_side_effects(client)
+
+
+@pytest.mark.parametrize("session_state", ["malformed", "nonexistent", "revoked", "expired"])
+@pytest.mark.parametrize("export_format", ["pdf_export", "docx_export", "markdown_export", "text_export"])
+def test_lesson_exports_reject_invalid_session_states_before_work(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    session_state: str,
+    export_format: str,
+) -> None:
+    from backend.routes import tutor_routes
+
+    cookie_name = get_settings().session_cookie_name
+    if session_state in {"revoked", "expired"}:
+        email = f"export-{session_state}-{export_format}@example.com"
+        authenticate_test_user(client, email=email)
+        session_factory = client.app.state.testing_session_factory
+        db = session_factory()
+        try:
+            user = db.query(UserAccount).filter(UserAccount.email == email).one()
+            session = db.query(UserSession).filter(UserSession.user_id == user.id).one()
+            if session_state == "revoked":
+                session.revoked_at = datetime.now(UTC)
+                session.revoke_reason = "security_test"
+            else:
+                session.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+            db.add(session)
+            db.commit()
+        finally:
+            db.close()
+    else:
+        client.cookies.set(
+            cookie_name,
+            "malformed-session-token" if session_state == "malformed" else "0" * 64,
+        )
+
+    calls = {"lesson": 0, "asset": 0, "analytics": 0}
+
+    def reject_unexpected_lesson_call(*args, **kwargs):
+        calls["lesson"] += 1
+        raise AssertionError("Invalid session reached lesson generation.")
+
+    def reject_unexpected_asset_call(*args, **kwargs):
+        calls["asset"] += 1
+        raise AssertionError("Invalid session reached document serialization.")
+
+    def reject_unexpected_analytics_call(*args, **kwargs):
+        calls["analytics"] += 1
+        raise AssertionError("Invalid session reached analytics recording.")
+
+    monkeypatch.setattr(tutor_routes, "explain_topic", reject_unexpected_lesson_call)
+    monkeypatch.setattr(tutor_routes, "build_lesson_export_asset", reject_unexpected_asset_call)
+    monkeypatch.setattr(tutor_routes, "record_analytics_event_safe", reject_unexpected_analytics_call)
+
+    response = client.post(
+        "/api/tutor/export/lesson/download",
+        json=_lesson_export_request_payload(export_format),
+    )
+
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"detail": "You need to sign in first."}
+    assert calls == {"lesson": 0, "asset": 0, "analytics": 0}
+    _assert_no_lesson_export_side_effects(client)
+
+
+def test_concurrent_unauthenticated_exports_never_reach_services(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.routes import tutor_routes
+
+    calls = {"asset": 0, "analytics": 0}
+
+    def reject_unexpected_asset_call(*args, **kwargs):
+        calls["asset"] += 1
+        raise AssertionError("Concurrent unauthenticated export reached serialization.")
+
+    def reject_unexpected_analytics_call(*args, **kwargs):
+        calls["analytics"] += 1
+        raise AssertionError("Concurrent unauthenticated export reached analytics.")
+
+    monkeypatch.setattr(tutor_routes, "build_lesson_export_asset", reject_unexpected_asset_call)
+    monkeypatch.setattr(tutor_routes, "record_analytics_event_safe", reject_unexpected_analytics_call)
+    payload = _lesson_export_request_payload("docx_export")
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        responses = list(
+            executor.map(
+                lambda _: client.post("/api/tutor/export/lesson/download", json=payload),
+                range(8),
+            )
+        )
+
+    assert [response.status_code for response in responses] == [401] * 8
+    assert calls == {"asset": 0, "analytics": 0}
+    _assert_no_lesson_export_side_effects(client)
+
+
 @pytest.mark.parametrize(
     ("export_format", "content_type", "extension"),
     [
@@ -17756,7 +17923,7 @@ def test_phase7c2_document_exports_use_displayed_lesson_without_ai_regeneration(
 ) -> None:
     from backend.routes import tutor_routes
 
-    authenticate_test_user(client, email=f"phase7c2-{export_format}@example.com")
+    auth = authenticate_test_user(client, email=f"phase7c2-{export_format}@example.com")
 
     def fail_ai_regeneration(*args, **kwargs):
         raise AssertionError("Document export must not regenerate the displayed lesson.")
@@ -17795,6 +17962,16 @@ def test_phase7c2_document_exports_use_displayed_lesson_without_ai_regeneration(
         assert "मौलिक अधिकार" in document_text
         assert "Why is Article 32" in document_text
         assert "# " not in document_text
+
+    session_factory = client.app.state.testing_session_factory
+    db = session_factory()
+    try:
+        events = db.query(AnalyticsEvent).filter(AnalyticsEvent.event_name == "lesson.exported").all()
+        assert len(events) == 1
+        assert events[0].user_id == auth["user"]["id"]
+        assert events[0].export_format == export_format
+    finally:
+        db.close()
 
 
 @pytest.mark.parametrize("export_format", ["pdf_export", "docx_export"])
